@@ -1,12 +1,10 @@
-# import torch
-from matplotlib import lines
+"""Set of utility functions to produce evaluation figures and histograms."""
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-# from PIL import Image
 from pathlib import Path
 from collections import defaultdict
-# from sklearn.metrics import roc_auc_score
 from matplotlib.ticker import MaxNLocator, FixedLocator
 from matplotlib.lines import Line2D
 import seaborn as sns
@@ -14,31 +12,30 @@ from matplotlib.ticker import LogLocator, NullFormatter
 from matplotlib.ticker import FormatStrFormatter
 import matplotlib.ticker as ticker
 from matplotlib import colors
-# import losses, model
-
-
-# def get_checkpoint_epoch(file_path):
-#     '''Prints the epoch in which a checkpoint was saved'''
-#     checkpoint = torch.load(file_path, map_location='cpu')
-#     epoch = checkpoint['epoch']
-#     del checkpoint
-#     return epoch
 
 
 def dataset_info(protocol_data_dir):
+    """
+    Produces data frame with basic information about the dataset. The data dir must contain train.csv,
+    validation.csv and test.csv, that list the samples for each split.
+    Args:
+        protocol_data_dir: Data directory.
+    Returns:
+        data frame: contains the basic information of the dataset.
+    """
     data_dir = Path(protocol_data_dir)
-    files = {'train': data_dir/'train.csv', 'val': data_dir/'validation.csv', 'test': data_dir/'test.csv'}
+    files = {'train': data_dir / 'train.csv', 'val': data_dir / 'validation.csv', 'test': data_dir / 'test.csv'}
     pd.options.display.float_format = '{:.1f}%'.format
     data = []
     for split, path in files.items():
         df = pd.read_csv(path, header=None)
         size = len(df)
         kn_size = (df[1] >= 0).sum()
-        kn_ratio = 100*kn_size/len(df)
+        kn_ratio = 100 * kn_size / len(df)
         kn_unk_size = (df[1] == -1).sum()
-        kn_unk_ratio = 100*kn_unk_size/len(df)
+        kn_unk_ratio = 100 * kn_unk_size / len(df)
         unk_unk_size = (df[1] == -2).sum()
-        unk_unk_ratio = 100*unk_unk_size/len(df)
+        unk_unk_ratio = 100 * unk_unk_size / len(df)
         num_classes = len(df[1].unique())
         row = (split, num_classes, size, kn_size, kn_ratio, kn_unk_size,
                kn_unk_ratio, unk_unk_size, unk_unk_ratio)
@@ -48,22 +45,23 @@ def dataset_info(protocol_data_dir):
     return info
 
 
-def process_names(file_list):
-    list_paths = []
-    for file in file_list:
-        file = str(file)
-        name = file.split('_')[:-3]
-        name = '_'.join(name)
-        path = '/'.join(['runs', name, file])
-        list_paths.append(path)
-    return list_paths
+# def process_names(file_list):
+#     list_paths = []
+#     for file in file_list:
+#         file = str(file)
+#         name = file.split('_')[:-3]
+#         name = '_'.join(name)
+#         path = '/'.join(['runs', name, file])
+#         list_paths.append(path)
+#     return list_paths
 
 
 def read_array_list(file_names, process=False):
-    if process:
-        list_paths = process_names(file_names)
-    else:
-        list_paths = file_names
+    # if processed:
+    #     list_paths = process_names(file_names)
+    # else:
+    #     list_paths = file_names
+    list_paths = file_names
     arrays = defaultdict(dict)
 
     if isinstance(file_names, dict):
@@ -78,25 +76,33 @@ def read_array_list(file_names, process=False):
 
 
 def get_ccr_at_fpr(gt, scores, tau, split='test'):
+    """
+
+    Args:
+        gt:
+        scores:
+        tau:
+        split:
+
+    Returns:
+
+    """
+
     # predictions
     pred_class = np.argmax(scores, axis=1)
-    # gt = gt.astype(np.int64)
     pred_score = scores[np.arange(len(scores)), pred_class]
-    # pred_score = scores[np.arange(len(scores)), gt]
     max_score = np.amax(scores, axis=1)
-    
-    # Total number of samples in:
-    dc = np.sum(gt > -1)    # Dc = Cardinality of known samples
-    db = np.sum(gt == -1)   # Db = Cardinality of known unknown samples
-    du = np.sum(gt < 0)     # Du = All unknown samples (Db U Da)
-    da = np.sum(gt == -2)   # Da = Cardinality of unknown unknown samples
-    corr_rate = np.count_nonzero((gt >= 0)*(pred_class == gt)*(pred_score >= tau))/dc
 
-    if split=='test':
-        unk_unk_rate = np.count_nonzero((gt == -2)*(max_score >= tau))/da
+    # Total number of samples in the splits.
+    dc = np.sum(gt > -1)  # Dc = Cardinality of known samples
+    db = np.sum(gt == -1)  # Db = Cardinality of known unknown samples
+    da = np.sum(gt == -2)  # Da = Cardinality of unknown-unknown samples
+    corr_rate = np.count_nonzero((gt >= 0) * (pred_class == gt) * (pred_score >= tau)) / dc
+    if split == 'test':
+        unk_unk_rate = np.count_nonzero((gt == -2) * (max_score >= tau)) / da
         return tau, corr_rate, unk_unk_rate
     else:
-        known_unk_rate = np.count_nonzero((gt == -1)*(max_score >= tau))/db
+        known_unk_rate = np.count_nonzero((gt == -1) * (max_score >= tau)) / db
         return tau, corr_rate, known_unk_rate
 
 
@@ -108,34 +114,34 @@ def calculate_oscr(gt, scores, norms=None, points=1000):
     # pred_score = scores[np.arange(len(scores)), gt]
     max_score = np.amax(scores, axis=1)
 
-    if norms is not None:   # This create thresholds over the product of norms*scores
+    if norms is not None:  # This create thresholds over the product of norms*scores
         pred_score = pred_score * norms
 
     # Total number of samples in:
-    dc = np.sum(gt > -1)    # Dc = Cardinality of known samples
-    db = np.sum(gt == -1)   # Db = Cardinality of known unknown samples
-    du = np.sum(gt < 0)     # Du = All unknown samples (Db U Da)
-    da = np.sum(gt == -2)   # Da = Cardinality of unknown unknown samples
+    dc = np.sum(gt > -1)  # Dc = Cardinality of known samples
+    db = np.sum(gt == -1)  # Db = Cardinality of known unknown samples
+    du = np.sum(gt < 0)  # Du = All unknown samples (Db U Da)
+    da = np.sum(gt == -2)  # Da = Cardinality of unknown unknown samples
 
     ccr, fpr_db, fpr_da, fpr_du = [], [], [], []
     # print(len(np.unique(pred_score)))
     # for tau in np.unique(pred_score):
     for tau in np.linspace(start=0, stop=1, num=points):
         # correct classifiation rate
-        corr_rate = np.count_nonzero((gt >= 0)*(pred_class == gt)*(pred_score >= tau))/dc
+        corr_rate = np.count_nonzero((gt >= 0) * (pred_class == gt) * (pred_score >= tau)) / dc
         ccr.append(corr_rate)
 
         # false positive rate known unknown
-        known_unk_rate = np.count_nonzero((gt == -1)*(max_score >= tau))/db
+        known_unk_rate = np.count_nonzero((gt == -1) * (max_score >= tau)) / db
         fpr_db.append(known_unk_rate)
 
         # false positive rate all unknowns
-        unk_rate = np.count_nonzero((gt < 0)*(max_score >= tau))/du
+        unk_rate = np.count_nonzero((gt < 0) * (max_score >= tau)) / du
         fpr_du.append(unk_rate)
 
         #  false positive rate uses unknown unknown
         if da != 0:
-            unk_unk_rate = np.count_nonzero((gt == -2)*(max_score >= tau))/da
+            unk_unk_rate = np.count_nonzero((gt == -2) * (max_score >= tau)) / da
             fpr_da.append(unk_unk_rate)
     # if the metric for validation then fpr_Du=fpr_Db
     return ccr, fpr_db, fpr_da, fpr_du
@@ -171,9 +177,10 @@ def plot_oscr(arrays, figsize=(10, 6), split='val', scale='linear', ylim=1, use_
             fpr = fpr_du
         else:
             fpr = fpr_db
-            
+
         if marker is not None:
-            ax.plot(fpr, ccr, label=exp_name, linestyle=linestyle, color=colors[idx], linewidth=linewidth, marker=marker, markevery=marker_step)
+            ax.plot(fpr, ccr, label=exp_name, linestyle=linestyle, color=colors[idx], linewidth=linewidth,
+                    marker=marker, markevery=marker_step)
         else:
             ax.plot(fpr, ccr, label=exp_name, linestyle=linestyle, color=colors[idx], linewidth=linewidth)
     if scale == 'log':
@@ -200,26 +207,27 @@ def plot_oscr(arrays, figsize=(10, 6), split='val', scale='linear', ylim=1, use_
     ax.tick_params(labelbottom=True, labeltop=False, labelleft=True,
                    labelright=False, labelsize=ax_label_font)
     if legend_pos == 'box':
-        ax.legend(frameon=False, bbox_to_anchor=(0, 0), loc="upper right", ncol=1, fontsize=ax_label_font-1)
+        ax.legend(frameon=False, bbox_to_anchor=(0, 0), loc="upper right", ncol=1, fontsize=ax_label_font - 1)
     elif legend_pos != 'no':
-        ax.legend(frameon=False, loc=legend_pos, fontsize=ax_label_font-1)
+        ax.legend(frameon=False, loc=legend_pos, fontsize=ax_label_font - 1)
     return ax
+
 
 def plot_oscr_knvsunk(arrays, rows=1, cols=1, figsize=(10, 6)):
     fig, ax = plt.subplots(rows, cols, figsize=figsize, sharex=True, sharey=True, constrained_layout=True)
-    if rows*cols > 1:
+    if rows * cols > 1:
         ax = np.ravel(ax)
     for idx, exp_name in enumerate(sorted(arrays, reverse=True)):
         ccr, fpr_db, fpr_da, _ = calculate_oscr(
             gt=arrays[exp_name]['gt'],
             scores=arrays[exp_name]['scores'],
             testing=True
-            )
+        )
         if idx == 0:
             sccr, sfpra, sname = ccr, fpr_da, exp_name
-        ax[idx].plot(fpr_db, ccr, label=exp_name+'_ku', linewidth=1)
-        ax[idx].plot(fpr_da, ccr, label=exp_name+'_uu', linewidth=1)
-        ax[idx].plot(sfpra, sccr, label=sname+'_suu', linestyle=':', linewidth=1)
+        ax[idx].plot(fpr_db, ccr, label=exp_name + '_ku', linewidth=1)
+        ax[idx].plot(fpr_da, ccr, label=exp_name + '_uu', linewidth=1)
+        ax[idx].plot(sfpra, sccr, label=sname + '_suu', linestyle=':', linewidth=1)
         ax[idx].set_xlim(0, 1)
         ax[idx].set_ylim(0, 1)
         ax[idx].xaxis.set_major_locator(MaxNLocator(prune='lower'))
@@ -254,7 +262,7 @@ def plot_histogram_val_test(arrays_val, arrays_test, metric, bins, figsize, titl
     # Create general figure
     nrows = len(arrays_val)
     fig, ax = plt.subplots(nrows, 2, figsize=figsize, constrained_layout=True, sharex=sharex, sharey=sharey)
-    fig.suptitle(title, fontsize=font+1)
+    fig.suptitle(title, fontsize=font + 1)
     # Iterate over experiments
     for idx, (exp_name, array) in enumerate(arrays_val.items()):
         plot_single_histogram(exp_name, array, size=(6, 4), value=metric, ax=ax[idx, 0], bins=bins,
@@ -269,7 +277,7 @@ def plot_histogram_val_test(arrays_val, arrays_test, metric, bins, figsize, titl
     # set custom legend
     handles = [Line2D([], [], c='tab:blue'), Line2D([], [], c='indianred')]
     labels = ['KKs', 'UUs']
-    fig.legend(frameon=False,  bbox_to_anchor=(0.5, -0.1), loc='lower center',
+    fig.legend(frameon=False, bbox_to_anchor=(0.5, -0.1), loc='lower center',
                fontsize=font, handles=handles, labels=labels, ncol=2)
     fig.set_constrained_layout_pads(w_pad=4 / 72, h_pad=4 / 72, hspace=0.1, wspace=0.05)
 
@@ -299,8 +307,8 @@ def plot_single_histogram(exp_name, arrays, size=(6, 4), value='score', ax=None,
     unk_metric = unk_scores
 
     if value == 'product':
-        kn_metric = kn_scores*kn_norms
-        unk_metric = unk_scores*unk_norms
+        kn_metric = kn_scores * kn_norms
+        unk_metric = unk_scores * unk_norms
     elif value == 'norm':
         kn_metric = kn_norms
         unk_metric = unk_norms
@@ -315,8 +323,8 @@ def plot_single_histogram(exp_name, arrays, size=(6, 4), value='score', ax=None,
     hist_unk, _ = np.histogram(unk_metric, bins)
     if normalized and not log:
         # max_val = max(np.max(hist_kn), np.max(hist_unk))
-        hist_kn = hist_kn/np.max(hist_kn)
-        hist_unk = hist_unk/np.max(hist_unk)
+        hist_kn = hist_kn / np.max(hist_kn)
+        hist_unk = hist_unk / np.max(hist_unk)
         # hist_kn = hist_kn/max_val
         # hist_unk = hist_unk/max_val
         ax.yaxis.set_major_locator(ticker.FixedLocator([0.5, 1]))
@@ -330,7 +338,6 @@ def plot_single_histogram(exp_name, arrays, size=(6, 4), value='score', ax=None,
     ax.stairs(hist_kn, bins, fill=False, color=fill_kn, edgecolor=edge_kn, linewidth=linewidth, linestyle=linestyle)
     ax.stairs(hist_unk, bins, fill=False, color=fill_unk, edgecolor=edge_unk, linewidth=linewidth, linestyle=linestyle)
 
-    
     if log:
         # ax.set_yscale('log')
         ax.set_xscale('log')
@@ -349,5 +356,5 @@ def plot_single_histogram(exp_name, arrays, size=(6, 4), value='score', ax=None,
     if legend:
         handles = [Line2D([], [], c=edge_kn), Line2D([], [], c=edge_unk)]
         labels = [label1, label2]
-        ax.legend(frameon=False,  bbox_to_anchor=(0.5, -0.15), loc='lower center', fontsize=12,
+        ax.legend(frameon=False, bbox_to_anchor=(0.5, -0.15), loc='lower center', fontsize=12,
                   handles=handles, labels=labels, ncol=2)

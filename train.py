@@ -26,17 +26,9 @@ import hydra
 from omegaconf import DictConfig
 from os import getcwd
 
-
 # Global objects
 best_score = 0.0
 start_epoch = 0
-
-
-def check_config(cfg):
-    # Checks
-    if (cfg.adv.who != 'no_adv') and cfg.dist.distributed:
-        m = "Can't train adversarial samples in distributed mode. Try single GPU"
-        raise Exception(m)
 
 
 def set_seeds(seed):
@@ -45,7 +37,6 @@ def set_seeds(seed):
     Args:
         seed (int): Integer
     """
-
     torch.manual_seed(seed)
     random.seed(seed)
     np.random.seed(seed)
@@ -55,29 +46,39 @@ def set_seeds(seed):
 
 def save_checkpoint(f_name, model, epoch, opt, best_score, scheduler=None):
     """
+    Saves a train checkpoint
     Args:
-        f_name:
-        model:
-        epoch:
-        opt:
-        best_score:
-        scheduler:
-
+        f_name: File name
+        model: Pytorch model.
+        epoch: Current epoch.
+        opt: Current optimizer.
+        best_score: Current best score.
+        scheduler: Pytorch scheduler.
     Returns:
 
     """
-
     # If model is distributed extracts the module.
     state = model.module.state_dict() if isinstance(model, DistributedDataParallel) else model.state_dict()
     data = {
-        'epoch': epoch+1,
+        'epoch': epoch + 1,
         'model_state_dict': state,
         'opt_state_dict': opt.state_dict(),
         'best_score': best_score
-        }
+    }
     if scheduler is not None:
         data['scheduler'] = scheduler.state_dict()
     torch.save(data, f_name)
+
+
+def check_config(cfg):
+    """
+    Placeholder to perform hyperparameter checks.
+    Args:
+        cfg: Configuration file
+    """
+    if (cfg.adv.who != 'no_adv') and cfg.dist.distributed:
+        m = "Can't train adversarial samples in distributed mode. Try single GPU"
+        raise Exception(m)
 
 
 def load_checkpoint(model, ckpt_path, opt=None, device='cpu', scheduler=None):
@@ -97,7 +98,7 @@ def load_checkpoint(model, ckpt_path, opt=None, device='cpu', scheduler=None):
     global best_score
     global start_epoch
     file_path = Path(ckpt_path)
-    if file_path.is_file:   # First check if file exists
+    if file_path.is_file:  # First check if file exists
         checkpoint = torch.load(file_path, map_location=device)
         key = list(checkpoint['model_state_dict'].keys())[0]
         # If module was saved as DistributedDataParallel then removes the world 'module' from dictionary keys
@@ -153,27 +154,27 @@ def filter_correct(logits, target, threshold, features=None):
     """
 
     with torch.no_grad():
-        if features is None:  # TODO: Define threshold of objectosphere
-            scores = torch.nn.functional.softmax(logits, dim=1)
-            pred = predict(scores, threshold)
-            correct = (target >= 0) * (pred[:, 0] == target)
-            idx = torch.nonzero(correct, as_tuple=True)
-            return idx
+        scores = torch.nn.functional.softmax(logits, dim=1)
+        pred = predict(scores, threshold)
+        correct = (target >= 0) * (pred[:, 0] == target)
+        return torch.nonzero(correct, as_tuple=True)
 
 
 def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
-    # reset dictionary of metrics
+    # Reset dictionary of metrics
     for t in trackers.values():
         t.reset()
+
     # training loop
     for x, t in data_loader:
-        model.train()
-        n = t.shape[0]  # Samples in curret batch
+        model.train()  # To collect batchnorm statistics
+        n = t.shape[0]  # Samples in current batch
         optimizer.zero_grad(set_to_none=True)
         x = x.to(device, non_blocking=True)
         t = t.to(device, non_blocking=True)
 
-        if cfg.adv.who == 'fgsm':    # Tracking the gradient w.r.t input
+        # If the gradient with respect to the input is needed
+        if cfg.adv.who == 'fgsm':
             x.requires_grad_()
             x.grad = None
 
@@ -183,25 +184,20 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
             j = loss_fn(features, logits, t, cfg.loss.alpha)
             trackers['j_o'].update(loss_fn.objecto_value, n)
             trackers['j_e'].update(loss_fn.entropic_value, n)
-        elif cfg.loss.type == 'entropic':
-            j = loss_fn(logits, t)
-            trackers['j_e'].update(j.item(), n)
-        elif cfg.loss.type == 'softmax':
-            j = loss_fn(logits, t)
-            trackers['j_s'].update(j.item(), n)
-        j.backward()
-        # print('b_ix', bix, 'normal loss:', j.item())
-        if cfg.adv.who == 'no_adv':
-            # print('step')
-            optimizer.step()
         else:
-            # for adversarial: filter samples, create adv_samples, calculate loss, backward pass
-            model.eval()  # To avoid updates in batchnorm layers
+            j = loss_fn(logits, t)
+            trackers['j'].update(j.item(), n)
+
+        j.backward()
+
+        if cfg.adv.who == 'no_adv':  # If training without adversarial samples
+            optimizer.step()
+        else:  # Steps: Select samples, create adv samples, calculate adv loss, backward pass
+            model.eval()  # To stop batchnorm statistics
 
             # Get the candidates to adversarial samples
             if cfg.adv.mode == 'filter':
                 correct_idx = filter_correct(logits, t, cfg.threshold, features=None)
-                # print(correct_idx)
                 num_adv_samples = len(correct_idx[0])
             elif cfg.adv.mode == 'full':
                 correct_idx = torch.arange(n, requires_grad=False, device=device)
@@ -211,14 +207,14 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
             if num_adv_samples > 0:
                 # print('adversarial samples', num_adv_samples)
                 x_corr = x[correct_idx]
-                # Create the adversarial sample based on who is the adversary
                 if cfg.adv.who == 'gaussian':
                     x_adv, t_adv = adversary.add_gaussian_noise(x_corr, loc=0, std=cfg.adv.std, device=device)
                 elif cfg.adv.who == 'random':
                     x_adv, t_adv = adversary.add_random_noise(x_corr, epsilon=cfg.adv.epsilon, device=device)
                 elif cfg.adv.who == 'fgsm':
                     x_corr_grad = x.grad[correct_idx]
-                    x_adv, t_adv = adversary.fgsm_attack(x_corr, epsilon=cfg.adv.epsilon, grad=x_corr_grad, device=device)
+                    x_adv, t_adv = adversary.fgsm_attack(x_corr, epsilon=cfg.adv.epsilon, grad=x_corr_grad,
+                                                         device=device)
                 else:
                     print('skipping adversarials')
                     continue
@@ -267,13 +263,13 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
                 j = loss_fn(logits, t)
                 trackers['j_s'].update(j.item(), n)
             # accumulate partial results in empty tensors
-            ix = i*cfg.batch_size
-            all_t[ix:ix+n] = t
-            all_scores[ix:ix+n] = scores
+            ix = i * cfg.batch_size
+            all_t[ix:ix + n] = t
+            all_scores[ix:ix + n] = scores
 
             # average confidence tracking
-            conf = metrics.confidence(scores, t, 1/n_classes)
-            trackers['conf'].update((conf[0]/n).item(), n)  # average confidence
+            conf = metrics.confidence(scores, t, 1 / n_classes)
+            trackers['conf'].update((conf[0] / n).item(), n)  # average confidence
 
         # validate using AUC, TODO: or the equal error rate.
         if cfg.loss.type == 'softmax':
@@ -290,12 +286,12 @@ def save_eval_arrays(model, loader, device, batch_size, file_name):
     Returns numpy arrays"""
     model.eval()
     with torch.no_grad():
-        N = len(loader.dataset)         # dataset length
-        C = model.logits.out_features   # logits output classes
-        F = model.net.fc.out_features   # features dimensionality
-        all_targets = torch.empty(N, device=device)      # store all targets
+        N = len(loader.dataset)  # dataset length
+        C = model.logits.out_features  # logits output classes
+        F = model.net.fc.out_features  # features dimensionality
+        all_targets = torch.empty(N, device=device)  # store all targets
         all_logits = torch.empty((N, C), device=device)  # store all logits
-        all_feat = torch.empty((N, F), device=device)    # store all features
+        all_feat = torch.empty((N, F), device=device)  # store all features
         all_scores = torch.empty((N, C), device=device)  # store all scores
 
         for i, (x, t) in enumerate(loader):
@@ -305,11 +301,11 @@ def save_eval_arrays(model, loader, device, batch_size, file_name):
             logits, features = model(x, features=True)
             scores = torch.nn.functional.softmax(logits, dim=1)
             # accumulate resutls in all_tensor
-            ix = i*batch_size
-            all_targets[ix:ix+n] = t
-            all_logits[ix:ix+n] = logits
-            all_feat[ix:ix+n] = features
-            all_scores[ix:ix+n] = scores
+            ix = i * batch_size
+            all_targets[ix:ix + n] = t
+            all_logits[ix:ix + n] = logits
+            all_feat[ix:ix + n] = features
+            all_scores[ix:ix + n] = scores
     # Parse to numpy arrays
     gt = all_targets.detach().cpu().numpy()
     logits = all_logits.detach().cpu().numpy()
@@ -351,7 +347,7 @@ def worker(gpu, cfg):
             init_method='env://',
             world_size=cfg.dist.gpus,
             rank=rank
-            )
+        )
     else:
         # Only one rank
         rank = 0
@@ -360,18 +356,18 @@ def worker(gpu, cfg):
     # Set image transformations
     train_tf = tf.Compose(
         [
-         tf.Resize(256),
-         tf.RandomCrop(224),
-         tf.RandomHorizontalFlip(0.5),
-         tf.ToTensor()]
+            tf.Resize(256),
+            tf.RandomCrop(224),
+            tf.RandomHorizontalFlip(0.5),
+            tf.ToTensor()]
     )
 
     val_tf = tf.Compose([tf.Resize((256)), tf.CenterCrop((224)), tf.ToTensor()])
 
     # create datasets
     data_dir = Path(cfg.data.data_dir)
-    train_file = data_dir/cfg.data.train_file
-    val_file = data_dir/cfg.data.val_file
+    train_file = data_dir / cfg.data.train_file
+    val_file = data_dir / cfg.data.val_file
 
     if train_file.exists() and val_file.exists():
         train_ds = Imagenet_dataset(train_file, cfg.data.imagenet_path, train_tf)
@@ -391,7 +387,7 @@ def worker(gpu, cfg):
         num_workers=cfg.workers,
         pin_memory=True,
         sampler=sampler
-        )
+    )
 
     val_loader = DataLoader(
         val_ds,
@@ -399,7 +395,7 @@ def worker(gpu, cfg):
         shuffle=True,
         num_workers=cfg.workers,
         pin_memory=True
-        )
+    )
 
     # Callbacks
     if cfg.patience > 0:
@@ -444,7 +440,7 @@ def worker(gpu, cfg):
     if cfg.checkpoint is not None:
         # Get the relative path of the checkpoint wrt train.py
         original_wd = Path(hydra.utils.get_original_cwd())
-        checkpoint_path = original_wd/cfg.checkpoint
+        checkpoint_path = original_wd / cfg.checkpoint
         if cfg.train_mode == 'finetune':
             load_checkpoint(model, checkpoint_path, None, device, None)
             logger.info('Finetunning: Setting best score to 0')
@@ -457,7 +453,7 @@ def worker(gpu, cfg):
         model = DistributedDataParallel(model, device_ids=[gpu], output_device=gpu)
 
     start_epsilon = cfg.adv.epsilon  #  Needed to keep initial epsilon when using decay
-    adv_who = cfg.adv.who           # Store initial adversary
+    adv_who = cfg.adv.who  # Store initial adversary
     # Checks if train the model without adversarials for a nr. of epochs then add advs.
     if cfg.adv.wait > 0:
         cfg.adv.who = 'no_adv'
@@ -465,14 +461,14 @@ def worker(gpu, cfg):
     # Set the final epoch
     global start_epoch
     cfg.epochs = start_epoch + cfg.epochs
-    
+
     # Print info to console and setup summarywriter
     if rank == 0:
         # Info on console
         logger.info('========== Data ==========')
         logger.info('train_ds len:{}, labels:{}'.format(len(train_ds), train_ds.label_cnt))
         logger.info('val_ds len:{}, labels:{}'.format(len(val_ds), val_ds.label_cnt))
-        logger.info('Total batch size: {}'.format(cfg.batch_size*cfg.dist.gpus))
+        logger.info('Total batch size: {}'.format(cfg.batch_size * cfg.dist.gpus))
         logger.info('========== Training ==========')
         logger.info('Initial epoch: {}'.format(start_epoch))
         logger.info('Last epoch: {}'.format(cfg.epochs))
@@ -504,7 +500,7 @@ def worker(gpu, cfg):
                 mu=cfg.adv.mu,
                 curr_epoch=epoch,
                 wait_epochs=cfg.adv.decay
-                )
+            )
             logger.info('epsilon:{:.4f}'.format(cfg.adv.epsilon))
 
         # training loop
@@ -566,8 +562,8 @@ def worker(gpu, cfg):
 
     logger.info('Training finised')
 
-# ========================== Evaluation ========================== #
-    test_file = data_dir/cfg.data.test_file
+    # ========================== Evaluation ========================== #
+    test_file = data_dir / cfg.data.test_file
     test_ds = Imagenet_dataset(test_file, cfg.data.imagenet_path, val_tf)
 
     test_loader = DataLoader(

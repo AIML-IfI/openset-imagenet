@@ -1,23 +1,18 @@
 from torchvision import models
 import torch.nn as nn
 
-# Taken from VAST
-# Note on softmax:
-# If you would like to use nn.CrossEntropyLoss, you should pass the raw logits to the loss function
-# (i.e. no final non-linearity), since nn.LogSoftmax and nn.NLLLoss will be called internally.
-# However, if you would like to use nn.NLLLoss, you should add the nn.LogSoftmax manually.
-
+# Taken from VAST: https://github.com/Vastlab/vast/tree/main/vast/architectures
 
 class ResNet50(nn.Module):
-    """Represents a  ResNet50 network todo: should include a parameter for pretrained? load from my saved net"""
+    """Represents a  ResNet50 model"""
 
     def __init__(self, fc_layer_dim=1000, out_features=1000, logit_bias=True):
         """
-        
+        Builds a ResNet50 model, with deep features and logits layers.
         Args:
-            fc_layer_dim:
-            out_features:
-            logit_bias:
+            fc_layer_dim: Deep features dimension.
+            out_features: Logits dimension.
+            logit_bias: True to use bias term in the logits layer.
         """
         super(ResNet50, self).__init__()
         net = models.resnet50(pretrained=False)
@@ -30,21 +25,17 @@ class ResNet50(nn.Module):
 
     def forward(self, x, features=True):
         """
-
+        Forward pass
         Args:
-            x:
-            features:
+            x: Input samples
+            features: True if return deep features of the samples.
 
-        Returns:
-
+        Returns: Logits and deep features of the samples.
         """
-        # Second last fully connected layer (deep features)
+
         d_features = self.net(x)
-        # last fully connected layer (logits)
         logits = self.logits(d_features)
         if features:
-            # Return logits and features
             return logits, d_features
         else:
-            # Return logits
             return logits

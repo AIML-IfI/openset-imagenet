@@ -1,17 +1,36 @@
-# Taken from VAST, sligthly modified
+# Code taken from the vast library https://github.com/Vastlab/vast
 from vast import losses
 from vast import tools
 from torch.nn import functional as F
 import torch
 
 
-# Simple wrapping class to handle losses
+# Simple wrapping class to handle losses, the class is only intended to keep code consistency.
 class objecto_loss():
     def __init__(self, n_classes, unk_weight=1, xi=10):
-        self.entropic = entropic_loss(n_classes, unk_weight)
-        self.objecto = losses.objectoSphere_loss(knownsMinimumMag=xi)
+        """
+
+        Args:
+            n_classes:
+            unk_weight:
+            xi:
+        """
+        self.entropic = entropic_loss(n_classes, unk_weight)    # Entropic term of the loss
+        self.objecto = losses.objectoSphere_loss(knownsMinimumMag=xi) # Objectosphere term
 
     def __call__(self, features, logits, targets, alpha, sample_weights=None):
+        """
+
+        Args:
+            features:
+            logits:
+            targets:
+            alpha:
+            sample_weights:
+
+        Returns:
+
+        """
         objecto_term = self.objecto(features, targets, sample_weights, reduction='sum')
         entropic_term = self.entropic(logits, targets, sample_weights)
         loss = entropic_term + alpha*objecto_term
@@ -31,7 +50,7 @@ class entropic_loss():
         # return l
 
 
-# Taken from vast, modified to accept batches without positive examples.
+# Taken from vast, modified to accept mini batches without positive examples.
 class entropic_openset_loss:
     def __init__(self, num_of_classes=10, unk_weight=1):
         self.num_of_classes = num_of_classes
@@ -41,18 +60,18 @@ class entropic_openset_loss:
 
     @tools.loss_reducer
     def __call__(self, logit_values, target, sample_weights=None):
-        catagorical_targets = tools.device(torch.zeros(logit_values.shape))
+        categorical_targets = tools.device(torch.zeros(logit_values.shape))
         known_indexes = target != -1
         unknown_indexes = ~known_indexes
         if torch.any(known_indexes):  # check if there is known samples in the batch
-            catagorical_targets[known_indexes, :] = self.eye[target[known_indexes]]
-        catagorical_targets[unknown_indexes, :] = (
+            categorical_targets[known_indexes, :] = self.eye[target[known_indexes]]
+        categorical_targets[unknown_indexes, :] = (
             self.ones.expand((torch.sum(unknown_indexes).item(), self.num_of_classes))
             * self.unknowns_multiplier
         )
         log_values = F.log_softmax(logit_values, dim=1)
         negative_log_values = -1 * log_values
-        loss = negative_log_values * catagorical_targets
+        loss = negative_log_values * categorical_targets
         sample_loss = torch.sum(loss, dim=1)
         if sample_weights is not None:
             sample_loss = sample_loss * sample_weights
