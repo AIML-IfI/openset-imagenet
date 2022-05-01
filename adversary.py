@@ -1,17 +1,20 @@
+"""Helper functions to create perturbations"""
+
 import torch
+
 
 def fgsm_attack(x, epsilon, grad, device):
     """
-    Generates and adversarial sample (using FGSM-method) and its corresponding label as known-unknown.
+    Generates an adversarial sample (using FGSM-method) and its corresponding label as known-unknown.
     Pixel values are clipped between [0,1].
     Parts taken from https://pytorch.org/tutorials/beginner/fgsm_tutorial.html
     Args:
         x: Clean image.
         epsilon: Per-pixel attack magnitude.
-        grad: Loss gradient with respect to sample x.
+        grad: Loss' gradient with respect to sample x.
         device: Current cuda device.
 
-    Returns: Tuple (adversarial sample, label).
+    Returns: Tuple (adversarial_sample, label).
     """
     # Get the element-wise sign of the gradient
     sign_data_grad = grad.sign()
@@ -25,7 +28,8 @@ def fgsm_attack(x, epsilon, grad, device):
 
 def decay_epsilon(start_eps, mu, curr_epoch, wait_epochs, lower_bound=0.01):
     """
-    Decays using a base [mu], every [wait_epochs] a [start_eps] to a minimum value of [lower_bound].
+    Decays an initial epsilon [start_eps], waiting a number of epochs [wait_epochs],
+    using a base factor [mu].
     Pixel values are clipped between [0,1].
     Args:
         start_eps: Initial epsilon value.
@@ -49,7 +53,7 @@ def add_random_noise(x, epsilon, device):
         epsilon: Per-pixel noise magnitude.
         device: Current cuda device.
 
-    Returns: Tuple (noisy image, label)
+    Returns: Tuple (noisy_image, label)
     """
     noise = torch.sign(torch.randn(x.shape, device=device))
     noisy_x = torch.clamp(x + epsilon*noise, min=0.0, max=1.0)
@@ -67,7 +71,7 @@ def add_gaussian_noise(x, loc, std, device):
         std: Standard deviation of the gaussian distribution.
         device: Current cuda device.
 
-    Returns: Tuple (noisy image, label)
+    Returns: Tuple (noisy_image, label)
     """
     noise = torch.empty(x.shape, device=device).normal_(mean=loc, std=std)
     noisy_x = torch.clamp(x + noise, min=0.0, max=1.0)

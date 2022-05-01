@@ -1,10 +1,12 @@
+"""Independent code for inference in testing dataset. The functions are included
+and executed in the train.py script."""
 import random
 import torch
 import argparse
 import numpy as np
 from pathlib import Path
 from torchvision import transforms as tf
-from dataset import Imagenet_dataset
+from dataset import ImagenetDataset
 from torch.utils.data import DataLoader
 from model import ResNet50
 from tqdm import tqdm
@@ -44,6 +46,11 @@ def get_args():
 
 
 def set_seeds(seed):
+    """
+    Sets the seed for different sources of randomness
+    Args:
+        seed (int): Integer
+    """
     torch.manual_seed(seed)
     random.seed(seed)
     np.random.seed(seed)
@@ -113,8 +120,8 @@ if __name__ == '__main__':
          ]
         )
     # create datasets
-    val_ds = Imagenet_dataset(args.val_file, args.imagenet_path, val_tf)
-    test_ds = Imagenet_dataset(args.test_file, args.imagenet_path, val_tf)
+    val_ds = ImagenetDataset(args.val_file, args.imagenet_path, val_tf)
+    test_ds = ImagenetDataset(args.test_file, args.imagenet_path, val_tf)
 
     # Info on console
     print('\n========== Data ==========')
@@ -169,73 +176,3 @@ if __name__ == '__main__':
         scores=scores
     )
     print('ground truth, logits, deep features, softmax scores saved in: {}'.format(file_path))
-
-    # # Extract the values - validation
-    # pred, score, gt, feature = predict_val(model, val_loader, device, args)
-    # np.savez(
-    #     args.output_dir/'{}_val_arr.npz'.format(args.exp_name),
-    #     pred=pred,
-    #     score=score,
-    #     gt=gt,
-    #     feature=feature
-    #     )
-
-    # # Extract the values - test
-    # pred, score, gt, feature = predict_val(model, test_loader, device, args)
-    # np.savez(
-    #     args.output_dir/'{}_test_arr.npz'.format(args.exp_name),
-    #     pred=pred,
-    #     score=score,
-    #     gt=gt,
-    #     feature=feature
-    #     )
-
-    # Correct classification rate: Total number of samples in:
-    # Dc -> Cardinality of samples of known classes
-    # Db -> Cardinality of known unknown samples
-    # Da -> Cardinality of unknown unknown samples
-    # Du -> All unknown samples (Db U Da)
-    # Dc = np.sum(gt > -1)
-    # Du = np.sum(gt < 0)
-    # Db = np.sum(gt == -1)
-    # Da = np.sum(gt == -2)
-    # ccr, fpr_Du, fpr_Db, fpr_Da = [], [], [], []
-    # for theta in np.unique(score):
-    #     corr_count = np.count_nonzero((gt > -1)*(pred == gt)*(score >= theta))
-    #     corr_count /= Dc
-    #     ccr.append(corr_count)
-    #     count_u = np.count_nonzero((gt < 0)*(pred >= 0)*(score >= theta))
-    #     count_u /= Du
-    #     fpr_Du.append(count_u)
-    #     count_b = np.count_nonzero((gt == -1)*(pred >= 0)*(score >= theta))
-    #     count_b /= Db
-    #     fpr_Db.append(count_b)
-    #     count_a = np.count_nonzero((gt == -2)*(pred >= 0)*(score >= theta))
-    #     count_a /= Da
-    #     fpr_Da.append(count_a)
-    # print('{:.5f},{:.5f},{:.5f},{:.5f}'.format(corr_count, count_u, count_b, count_a))
-
-    # # replace -2 labels to -1 to get binary AUC
-    # gt[gt == -2] = -1
-    # auc = metrics.auc_score_binary(gt, score)
-    # print('auc', auc)
-
-    # # plot in multipage pdf
-    # with PdfPages(args.data_dir/'figures.pdf') as pdf:
-    #     fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-    #     ax.plot(fpr_Du, ccr, label='Du: Unk All')
-    #     ax.plot(fpr_Da, ccr, label='Da: Unk Unk')
-    #     ax.plot(fpr_Db, ccr, label='Db: Knw Unk')
-    #     ax.set_xlabel('False Positive Rate', fontsize=14)
-    #     ax.set_ylabel('Correct Classification Rate', fontsize=14)
-    #     ax.set_title('CCR')
-    #     ax.tick_params(bottom=True, top=True, left=True, right=True, direction='inout')
-    #     ax.tick_params(labelbottom=True, labeltop=False, labelleft=True, labelright=False, labelsize=13)
-    #     plt.legend(frameon=False)
-    #     pdf.savefig()
-    #     plt.close()
-
-    #     fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-    #     ax.hist(norms, bins=500, log=True)
-    #     pdf.savefig()
-    #     plt.close()

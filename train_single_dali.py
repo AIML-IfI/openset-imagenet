@@ -6,7 +6,7 @@ from pathlib import Path
 from collections import OrderedDict, defaultdict
 import metrics
 import adversary
-from dataset import Imagenet_dataset
+from dataset import ImagenetDataset
 from model import ResNet50
 from losses import AverageMeter, EarlyStopping, entropic_loss, objecto_loss
 from torch.utils.data import DataLoader
@@ -360,8 +360,8 @@ def worker(cfg):
     val_file = data_dir/cfg.data.val_file
 
     if train_file.exists() and val_file.exists():
-        train_ds = Imagenet_dataset(train_file, cfg.data.imagenet_path, train_tf)
-        val_ds = Imagenet_dataset(val_file, cfg.data.imagenet_path, val_tf)
+        train_ds = ImagenetDataset(train_file, cfg.data.imagenet_path, train_tf)
+        val_ds = ImagenetDataset(val_file, cfg.data.imagenet_path, val_tf)
     else:
         raise FileNotFoundError('train/validation file does not exist')
     # print(cfg.workers, type(cfg.workers))
@@ -558,7 +558,7 @@ def worker(cfg):
 
 # ========================== Evaluation ========================== #
     test_file = data_dir/cfg.data.test_file
-    test_ds = Imagenet_dataset(test_file, cfg.data.imagenet_path, val_tf)
+    test_ds = ImagenetDataset(test_file, cfg.data.imagenet_path, val_tf)
 
     test_loader = DataLoader(
         test_ds,

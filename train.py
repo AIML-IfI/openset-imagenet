@@ -7,7 +7,7 @@ from pathlib import Path
 from collections import OrderedDict, defaultdict
 import metrics
 import adversary
-from dataset import Imagenet_dataset
+from dataset import ImagenetDataset
 from model import ResNet50
 from losses import AverageMeter, EarlyStopping, entropic_loss, objecto_loss
 from torch.utils.data import DataLoader
@@ -26,8 +26,10 @@ import hydra
 from omegaconf import DictConfig
 from os import getcwd
 
-# Global objects
+# Global objects:
+# Best validation score
 best_score = 0.0
+# Initial training epoch
 start_epoch = 0
 
 
@@ -46,7 +48,7 @@ def set_seeds(seed):
 
 def save_checkpoint(f_name, model, epoch, opt, best_score, scheduler=None):
     """
-    Saves a train checkpoint
+    Saves a training checkpoint
     Args:
         f_name: File name
         model: Pytorch model.
@@ -54,10 +56,8 @@ def save_checkpoint(f_name, model, epoch, opt, best_score, scheduler=None):
         opt: Current optimizer.
         best_score: Current best score.
         scheduler: Pytorch scheduler.
-    Returns:
-
     """
-    # If model is distributed extracts the module.
+    # If model is DistributedDataParallel extracts the module.
     state = model.module.state_dict() if isinstance(model, DistributedDataParallel) else model.state_dict()
     data = {
         'epoch': epoch + 1,
@@ -84,7 +84,7 @@ def check_config(cfg):
 def load_checkpoint(model, ckpt_path, opt=None, device='cpu', scheduler=None):
     """ Loads a checkpoint in CPU by default. If the model was saved using DistributedDataParallel, removes
     the word 'module' from the state_dictionary keys to load it in a single device.
-    If finetuning model then optimizer should be none to start from clean optimizer parameters.
+    If fine-tuning model then optimizer should be none to start from clean optimizer parameters.
 
     Args:
         model (torch nn.module): Requires a model to load the state dictionary
@@ -92,7 +92,7 @@ def load_checkpoint(model, ckpt_path, opt=None, device='cpu', scheduler=None):
         opt (torch optimizer, optional): An optimizer to load the state dictionary. Defaults to None.
         device (str, optional): Device to load the checkpoint, can be loaded directly to a cuda device.
         Defaults to 'cpu'.
-        scheduler (torch lr_scheuler, optional): Learning rate scheduler. Defaults to None.
+        scheduler (torch lr_scheduler, optional): Learning rate scheduler. Defaults to None.
     """
 
     global best_score
@@ -110,7 +110,7 @@ def load_checkpoint(model, ckpt_path, opt=None, device='cpu', scheduler=None):
             model.load_state_dict(new_state_dict)
         else:
             model.load_state_dict(checkpoint['model_state_dict'])
-        # Load optimizator state
+        # Load optimizer state
         if opt is not None:
             opt.load_state_dict(checkpoint['opt_state_dict'])
         start_epoch = checkpoint['epoch']
@@ -128,14 +128,13 @@ def load_checkpoint(model, ckpt_path, opt=None, device='cpu', scheduler=None):
 
 
 def predict(scores, threshold):
-    """_summary_
+    """ Returns the class and max score of the sample. If the max score<threshold returns -1.
     Args:
-        scores (_type_): _description_
-        threshold (_type_): _description_
-
-    Returns:
-        _type_: _description_
+        scores: Softmax scores of all classes and samples in batch
+        threshold: Minimum score to classify as a known sample
+    Returns: Tensor with predicted class and score.
     """
+
     pred_score, pred_class = torch.max(scores, dim=1)
     unk = pred_score < threshold
     pred_class[unk] = -1
@@ -161,7 +160,19 @@ def filter_correct(logits, target, threshold, features=None):
 
 
 def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
-    # Reset dictionary of metrics
+    """ Training loop
+    Args:
+        model:
+        data_loader:
+        optimizer:
+        device:
+        loss_fn:
+        trackers:
+        cfg:
+    Returns:
+    """
+
+    # Reset dictionary of training metrics
     for t in trackers.values():
         t.reset()
 
@@ -178,8 +189,10 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
             x.requires_grad_()
             x.grad = None
 
+        # Forward pass
         logits, features = model(x, features=True)
 
+        # Calculate loss
         if cfg.loss.type == 'objectosphere':
             j = loss_fn(features, logits, t, cfg.loss.alpha)
             trackers['j_o'].update(loss_fn.objecto_value, n)
@@ -192,20 +205,25 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
 
         if cfg.adv.who == 'no_adv':  # If training without adversarial samples
             optimizer.step()
-        else:  # Steps: Select samples, create adv samples, calculate adv loss, backward pass
+        else:
+            # Steps:
+            #   Select samples to perturb
+            #   Create adv samples
+            #   Calculate adv loss
+            #   Backward pass
             model.eval()  # To stop batchnorm statistics
 
             # Get the candidates to adversarial samples
-            if cfg.adv.mode == 'filter':
+            if cfg.adv.mode == 'filter': # Perturb corrected classified samples
                 correct_idx = filter_correct(logits, t, cfg.threshold, features=None)
                 num_adv_samples = len(correct_idx[0])
-            elif cfg.adv.mode == 'full':
+            elif cfg.adv.mode == 'full': # Perturb all samples
                 correct_idx = torch.arange(n, requires_grad=False, device=device)
                 num_adv_samples = len(correct_idx)
             trackers['num_adv'].update(num_adv_samples)
 
+            # Create perturbed samples
             if num_adv_samples > 0:
-                # print('adversarial samples', num_adv_samples)
                 x_corr = x[correct_idx]
                 if cfg.adv.who == 'gaussian':
                     x_adv, t_adv = adversary.add_gaussian_noise(x_corr, loc=0, std=cfg.adv.std, device=device)
@@ -236,6 +254,17 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
 
 
 def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
+    """ Validation loop
+    Args:
+        model:
+        loader:
+        device:
+        loss_fn:
+        n_classes:
+        trackers:
+        cfg:
+
+    """
     for t in trackers.values():
         t.reset()
 
@@ -370,8 +399,8 @@ def worker(gpu, cfg):
     val_file = data_dir / cfg.data.val_file
 
     if train_file.exists() and val_file.exists():
-        train_ds = Imagenet_dataset(train_file, cfg.data.imagenet_path, train_tf)
-        val_ds = Imagenet_dataset(val_file, cfg.data.imagenet_path, val_tf)
+        train_ds = ImagenetDataset(train_file, cfg.data.imagenet_path, train_tf)
+        val_ds = ImagenetDataset(val_file, cfg.data.imagenet_path, val_tf)
     else:
         raise FileNotFoundError('train/validation file does not exist')
 
@@ -564,7 +593,7 @@ def worker(gpu, cfg):
 
     # ========================== Evaluation ========================== #
     test_file = data_dir / cfg.data.test_file
-    test_ds = Imagenet_dataset(test_file, cfg.data.imagenet_path, val_tf)
+    test_ds = ImagenetDataset(test_file, cfg.data.imagenet_path, val_tf)
 
     test_loader = DataLoader(
         test_ds,

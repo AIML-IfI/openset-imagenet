@@ -1,7 +1,6 @@
+# Taken from VAST: https://github.com/Vastlab/vast/tree/main/vast/architectures
 from torchvision import models
 import torch.nn as nn
-
-# Taken from VAST: https://github.com/Vastlab/vast/tree/main/vast/architectures
 
 class ResNet50(nn.Module):
     """Represents a  ResNet50 model"""
