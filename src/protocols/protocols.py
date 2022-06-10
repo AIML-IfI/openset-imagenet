@@ -170,9 +170,9 @@ class OpenSetProtocol:
         self.data['test'] = list(zip(x, y))
 
         # write csv files
-        self.save_csv(self.out_dir / ('p'+str(self.protocol)+'_train'), self.data['train'])
-        self.save_csv(self.out_dir / ('p'+str(self.protocol)+'_val'), self.data['val'])
-        self.save_csv(self.out_dir / ('p'+str(self.protocol)+'_test'), self.data['test'])
+        self.save_csv(self.out_dir / ('p'+str(self.protocol)+'_train.csv'), self.data['train'])
+        self.save_csv(self.out_dir / ('p'+str(self.protocol)+'_val.csv'), self.data['val'])
+        self.save_csv(self.out_dir / ('p'+str(self.protocol)+'_test.csv'), self.data['test'])
 
 # ----------------------------------------------------------------------------------------------
 
@@ -180,15 +180,27 @@ in_info_path = Path(r"/local/scratch/datasets/ImageNet/ILSVRC2012/robustness")
 root_dir = Path(r"/local/scratch/datasets/ImageNet/ILSVRC2012")
 out_dir = Path(r"/local/scratch/palechor/openset-imagenet/data")
 
+
+def print_data(prt):
+    print('---------------Protocol '+str(prt.protocol) + ' ------------')
+    print('kn classes:', len(prt.kn_classes))
+    print('kn_unk classes:', len(prt.kn_unk_classes))
+    print('unk_unk classes:', len(prt.unk_unk_classes))
+    print('train size:', len(prt.data['train']))
+    print('val size:', len(prt.data['val']))
+    print('test size:', len(prt.data['test']))
+
+
 prt = OpenSetProtocol(im_root_dir=root_dir, info_path=in_info_path, out_dir=out_dir, protocol=1)
 prt.create_dataset(random_state=4242)
+print_data(prt)
+prt = OpenSetProtocol(im_root_dir=root_dir, info_path=in_info_path, out_dir=out_dir, protocol=2)
+prt.create_dataset(random_state=4242)
+print_data(prt)
+prt = OpenSetProtocol(im_root_dir=root_dir, info_path=in_info_path, out_dir=out_dir, protocol=3)
+prt.create_dataset(random_state=4242)
+print_data(prt)
 
-print('kn classes:', len(prt.kn_classes))
-print('kn_unk classes:', len(prt.kn_unk_classes))
-print('unk_unk classes:', len(prt.unk_unk_classes))
-print('train size:', len(prt.data['train']))
-print('val size:', len(prt.data['val']))
-print('test size:', len(prt.data['test']))
 ''
 # def check_datasets(d1, d2):
 #     d1 = d1.copy()
