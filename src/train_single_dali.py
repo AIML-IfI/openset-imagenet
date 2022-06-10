@@ -278,7 +278,7 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
             all_scores[ix:ix+n] = scores
 
             # average confidence tracking
-            conf = metrics.confidence(scores, t, 1/n_classes)
+            conf = metrics.confidence(scores, t, 1 / n_classes)
             trackers['conf'].update((conf[0]/n).item(), n)  # average confidence
 
         # Validate using AUC
