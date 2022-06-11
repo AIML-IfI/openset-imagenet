@@ -2,6 +2,7 @@
 from torchvision import models
 import torch.nn as nn
 
+
 class ResNet50(nn.Module):
     """Represents a  ResNet50 model"""
 
@@ -31,7 +32,6 @@ class ResNet50(nn.Module):
 
         Returns: Logits and deep features of the samples.
         """
-
         d_features = self.net(x)
         logits = self.logits(d_features)
         if features:

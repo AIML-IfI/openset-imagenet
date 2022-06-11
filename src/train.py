@@ -9,7 +9,7 @@ import metrics
 import adversary
 from dataset import ImagenetDataset
 from model import ResNet50
-from losses import AverageMeter, EarlyStopping, entropic_loss, objecto_loss
+from losses import AverageMeter, EarlyStopping, EntropicLoss, ObjectoLoss
 from torch.utils.data import DataLoader
 from torchvision import transforms as tf
 from torch.optim import lr_scheduler
@@ -34,8 +34,7 @@ start_epoch = 0
 
 
 def set_seeds(seed):
-    """
-    Sets the seed for different sources of randomness
+    """ Sets the seed for different sources of randomness
     Args:
         seed (int): Integer
     """
@@ -46,15 +45,14 @@ def set_seeds(seed):
     # torch.backends.cudnn.benchmark = False
 
 
-def save_checkpoint(f_name, model, epoch, opt, best_score, scheduler=None):
-    """
-    Saves a training checkpoint
+def save_checkpoint(f_name, model, epoch, opt, best_score_, scheduler=None):
+    """ Saves a training checkpoint
     Args:
         f_name: File name
         model: Pytorch model.
         epoch: Current epoch.
         opt: Current optimizer.
-        best_score: Current best score.
+        best_score_: Current best score.
         scheduler: Pytorch scheduler.
     """
     # If model is DistributedDataParallel extracts the module.
@@ -63,7 +61,7 @@ def save_checkpoint(f_name, model, epoch, opt, best_score, scheduler=None):
         'epoch': epoch + 1,
         'model_state_dict': state,
         'opt_state_dict': opt.state_dict(),
-        'best_score': best_score
+        'best_score': best_score_
     }
     if scheduler is not None:
         data['scheduler'] = scheduler.state_dict()
@@ -71,8 +69,7 @@ def save_checkpoint(f_name, model, epoch, opt, best_score, scheduler=None):
 
 
 def check_config(cfg):
-    """
-    Placeholder to perform hyperparameter checks.
+    """ Placeholder to perform hyperparameter checks.
     Args:
         cfg: Configuration file
     """
@@ -94,7 +91,6 @@ def load_checkpoint(model, ckpt_path, opt=None, device='cpu', scheduler=None):
         Defaults to 'cpu'.
         scheduler (torch lr_scheduler, optional): Learning rate scheduler. Defaults to None.
     """
-
     global best_score
     global start_epoch
     file_path = Path(ckpt_path)
@@ -134,24 +130,21 @@ def predict(scores, threshold):
         threshold: Minimum score to classify as a known sample
     Returns: Tensor with predicted class and score.
     """
-
     pred_score, pred_class = torch.max(scores, dim=1)
     unk = pred_score < threshold
     pred_class[unk] = -1
     return torch.stack((pred_class, pred_score), dim=1)
 
 
-def filter_correct(logits, target, threshold, features=None):
+def filter_correct(logits, target, threshold):
     """Returns the indices of correctly predicted known samples.
     Args:
         logits (tensor): Logits tensor
         target (tensor): Targets tensor
         threshold (float): Minimum score for the target to be classified as known.
-        features (tensor, optional): Fetuatures tensor. Defaults to None.
     Returns:
         tuple: Tuple containing in fist position the tensor with indices of correctly predicted samples.
     """
-
     with torch.no_grad():
         scores = torch.nn.functional.softmax(logits, dim=1)
         pred = predict(scores, threshold)
@@ -160,25 +153,13 @@ def filter_correct(logits, target, threshold, features=None):
 
 
 def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
-    """ Training loop
-    Args:
-        model:
-        data_loader:
-        optimizer:
-        device:
-        loss_fn:
-        trackers:
-        cfg:
-    Returns:
-    """
-
     # Reset dictionary of training metrics
     for t in trackers.values():
         t.reset()
 
     # training loop
     for x, t in data_loader:
-        model.train()  # To collect batchnorm statistics
+        model.train()  # To collect batch normalisation statistics
         n = t.shape[0]  # Samples in current batch
         optimizer.zero_grad(set_to_none=True)
         x = x.to(device, non_blocking=True)
@@ -211,13 +192,15 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
             #   Create adv samples
             #   Calculate adv loss
             #   Backward pass
-            model.eval()  # To stop batchnorm statistics
+            model.eval()  # To stop batch normalisation statistics
 
             # Get the candidates to adversarial samples
-            if cfg.adv.mode == 'filter': # Perturb corrected classified samples
+            num_adv_samples = 0
+            correct_idx = None
+            if cfg.adv.mode == 'filter':  # Perturb corrected classified samples
                 correct_idx = filter_correct(logits, t, cfg.threshold, features=None)
                 num_adv_samples = len(correct_idx[0])
-            elif cfg.adv.mode == 'full': # Perturb all samples
+            elif cfg.adv.mode == 'full':  # Perturb all samples
                 correct_idx = torch.arange(n, requires_grad=False, device=device)
                 num_adv_samples = len(correct_idx)
             trackers['num_adv'].update(num_adv_samples)
@@ -239,40 +222,28 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
 
                 # forward pass with adversarial samples
                 logits, features = model(x_adv)
+                j_a = None
                 if cfg.loss.type == 'objectosphere':
                     j_a = loss_fn(features, logits, t_adv, cfg.loss.alpha)
                 elif cfg.loss.type == 'entropic':
                     j_a = loss_fn(logits, t_adv)
-                # print('adv', j_a)
                 trackers['j_adv'].update(j_a.item(), num_adv_samples)
                 # elif cfg.loss.type == 'softmax':
                 #     j = loss_fn(logits, t_adv)
                 #     trackers['j_sadv'].update(j.item(), num_adv_samples)
-                # print('b_ix', bix, 'adv loss', j.item())
                 j_a.backward()
             optimizer.step()
 
 
 def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
-    """ Validation loop
-    Args:
-        model:
-        loader:
-        device:
-        loss_fn:
-        n_classes:
-        trackers:
-        cfg:
-
-    """
     for t in trackers.values():
         t.reset()
 
     model.eval()
     with torch.no_grad():
-        N = len(loader.dataset)  # size of dataset
-        all_t = torch.empty(N, device=device).detach()  # store all targets
-        all_scores = torch.empty((N, n_classes), device=device).detach()  # store all scores
+        data_len = len(loader.dataset)  # size of dataset
+        all_t = torch.empty(data_len, device=device).detach()  # store all targets
+        all_scores = torch.empty((data_len, n_classes), device=device).detach()  # store all scores
 
         for i, (x, t) in enumerate(loader):
             n = t.shape[0]  # current batch size, last batch has different value
@@ -282,7 +253,7 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
             scores = torch.nn.functional.softmax(logits, dim=1)
 
             if cfg.loss.type == 'objectosphere':
-                j = loss_fn(features, logits, t, cfg.loss.alpha)
+                _ = loss_fn(features, logits, t, cfg.loss.alpha)
                 trackers['j_o'].update(loss_fn.objecto_value, n)
                 trackers['j_e'].update(loss_fn.entropic_value, n)
             elif cfg.loss.type == 'entropic':
@@ -307,7 +278,7 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
             max_score, _ = torch.max(all_scores, dim=1)
             # print('max_score shape {}, t shape {}'.format(max_score.shape, all_t.shape))
             auc = metrics.auc_score_binary(all_t, max_score)
-        trackers['auc'].update(auc, N)
+        trackers['auc'].update(auc, data_len)
 
 
 def save_eval_arrays(model, loader, device, batch_size, file_name):
@@ -315,13 +286,13 @@ def save_eval_arrays(model, loader, device, batch_size, file_name):
     Returns numpy arrays"""
     model.eval()
     with torch.no_grad():
-        N = len(loader.dataset)  # dataset length
-        C = model.logits.out_features  # logits output classes
-        F = model.net.fc.out_features  # features dimensionality
-        all_targets = torch.empty(N, device=device)  # store all targets
-        all_logits = torch.empty((N, C), device=device)  # store all logits
-        all_feat = torch.empty((N, F), device=device)  # store all features
-        all_scores = torch.empty((N, C), device=device)  # store all scores
+        data_len = len(loader.dataset)  # dataset length
+        logits_dim = model.logits.out_features  # logits output classes
+        features_dim = model.net.fc.out_features  # features dimensionality
+        all_targets = torch.empty(data_len, device=device)  # store all targets
+        all_logits = torch.empty((data_len, logits_dim), device=device)  # store all logits
+        all_feat = torch.empty((data_len, features_dim), device=device)  # store all features
+        all_scores = torch.empty((data_len, logits_dim), device=device)  # store all scores
 
         for i, (x, t) in enumerate(loader):
             n = t.shape[0]  # current batch size, very last batch has different value
@@ -329,7 +300,7 @@ def save_eval_arrays(model, loader, device, batch_size, file_name):
             t = t.to(device)
             logits, features = model(x, features=True)
             scores = torch.nn.functional.softmax(logits, dim=1)
-            # accumulate resutls in all_tensor
+            # accumulate results in all_tensor
             ix = i * batch_size
             all_targets[ix:ix + n] = t
             all_logits[ix:ix + n] = logits
@@ -355,7 +326,7 @@ def main(cfg: DictConfig):
     if cfg.dist.distributed:
         os.environ['MASTER_ADDR'] = 'localhost'
         os.environ['MASTER_PORT'] = cfg.dist.port
-        print('\nDistributed traning at: {}:{}'.format(os.environ['MASTER_ADDR'], os.environ['MASTER_PORT']))
+        print('\nDistributed training at: {}:{}'.format(os.environ['MASTER_ADDR'], os.environ['MASTER_PORT']))
         print('Using {} gpus'.format(cfg.dist.gpus))
         mp.spawn(worker, nprocs=cfg.dist.gpus, args=(cfg,))
     else:
@@ -391,7 +362,7 @@ def worker(gpu, cfg):
             tf.ToTensor()]
     )
 
-    val_tf = tf.Compose([tf.Resize((256)), tf.CenterCrop((224)), tf.ToTensor()])
+    val_tf = tf.Compose([tf.Resize(256), tf.CenterCrop(224), tf.ToTensor()])
 
     # create datasets
     data_dir = Path(cfg.data.data_dir)
@@ -427,6 +398,7 @@ def worker(gpu, cfg):
     )
 
     # Callbacks
+    early_stopping = None
     if cfg.patience > 0:
         early_stopping = EarlyStopping(patience=cfg.patience)
 
@@ -438,14 +410,15 @@ def worker(gpu, cfg):
     t_metrics = defaultdict(AverageMeter)
     v_metrics = defaultdict(AverageMeter)
 
+    loss = None
     if train_ds.has_unknowns():
         n_classes = train_ds.label_cnt - 1  # number of classes - 1 when training with unknowns
     else:
         n_classes = train_ds.label_cnt
     if cfg.loss.type == 'objectosphere':
-        loss = objecto_loss(n_classes, cfg.loss.w, cfg.loss.xi)
+        loss = ObjectoLoss(n_classes, cfg.loss.w, cfg.loss.xi)
     elif cfg.loss.type == 'entropic':
-        loss = entropic_loss(n_classes, cfg.loss.w)
+        loss = EntropicLoss(n_classes, cfg.loss.w)
     elif cfg.loss.type == 'softmax':
         loss = torch.nn.CrossEntropyLoss().to(device)
 
@@ -460,7 +433,7 @@ def worker(gpu, cfg):
         opt = torch.optim.Adam(params=model.parameters(), lr=cfg.opt.lr)
 
     # Learning rate scheduler
-    if (cfg.opt.decay > 0):
+    if cfg.opt.decay > 0:
         scheduler = lr_scheduler.StepLR(opt, step_size=cfg.opt.decay, gamma=cfg.opt.gamma, verbose=True)
     else:
         scheduler = None
@@ -472,7 +445,7 @@ def worker(gpu, cfg):
         checkpoint_path = original_wd / cfg.checkpoint
         if cfg.train_mode == 'finetune':
             load_checkpoint(model, checkpoint_path, None, device, None)
-            logger.info('Finetunning: Setting best score to 0')
+            logger.info('Fine-tuning: Setting best score to 0')
             best_score = 0
         else:
             load_checkpoint(model, checkpoint_path, opt, device, scheduler)
@@ -481,9 +454,9 @@ def worker(gpu, cfg):
     if cfg.dist.distributed:
         model = DistributedDataParallel(model, device_ids=[gpu], output_device=gpu)
 
-    start_epsilon = cfg.adv.epsilon  #  Needed to keep initial epsilon when using decay
+    start_epsilon = cfg.adv.epsilon  # Needed to keep initial epsilon when using decay
     adv_who = cfg.adv.who  # Store initial adversary
-    # Checks if train the model without adversarials for a nr. of epochs then add advs.
+    # Checks if train the model without adversarials for a nr. of epochs then add adversarial samples.
     if cfg.adv.wait > 0:
         cfg.adv.who = 'no_adv'
 
@@ -491,7 +464,8 @@ def worker(gpu, cfg):
     global start_epoch
     cfg.epochs = start_epoch + cfg.epochs
 
-    # Print info to console and setup summarywriter
+    # Print info to console and setup summary writer
+    writer = None
     if rank == 0:
         # Info on console
         logger.info('========== Data ==========')
@@ -507,7 +481,7 @@ def worker(gpu, cfg):
         logger.info('Adversary: {}'.format(cfg.adv.who))
         logger.info('Adversary mode: {}'.format(cfg.adv.mode))
         logger.info('Loss: {}'.format(cfg.loss.type))
-        logger.info('Optmizer: {}'.format(cfg.opt.type))
+        logger.info('Optimiser: {}'.format(cfg.opt.type))
         logger.info('Learning rate: {}'.format(cfg.opt.lr))
         logger.info('Device: {}'.format(device))
         logger.info('Training...')
@@ -523,7 +497,7 @@ def worker(gpu, cfg):
             cfg.adv.who = adv_who
 
         # calculate epsilon
-        if (cfg.adv.who in ['fgsm', 'random']) and cfg.adv.mu > 0 and cfg.adv.mu < 1 and cfg.adv.decay > 0:
+        if (cfg.adv.who in ['fgsm', 'random']) and 0 < cfg.adv.mu < 1 and cfg.adv.decay > 0:
             cfg.adv.epsilon = adversary.decay_epsilon(
                 start_eps=start_epsilon,
                 mu=cfg.adv.mu,
@@ -541,7 +515,7 @@ def worker(gpu, cfg):
         curr_score = v_metrics['auc'].avg
 
         # learning rate scheduler step
-        if (cfg.opt.decay > 0):
+        if cfg.opt.decay > 0:
             scheduler.step()
 
         if rank == 0:
@@ -574,7 +548,7 @@ def worker(gpu, cfg):
 
             # save best model and current model
             f_name = '{}_curr.pth'.format(cfg.exp_name)  # current model
-            if (curr_score > best_score):
+            if curr_score > best_score:
                 best_score = curr_score
                 f_name = '{}_best.pth'.format(cfg.exp_name)  # best model
                 logger.info('Saving best model at epoch: {}'.format(epoch))
@@ -585,11 +559,11 @@ def worker(gpu, cfg):
         # Early stopping
         if cfg.patience > 0:
             early_stopping(metrics=curr_score, loss=False)
-            if (early_stopping.early_stop):
+            if early_stopping.early_stop:
                 logger.info('early stop')
                 break
 
-    logger.info('Training finised')
+    logger.info('Training finished')
 
     # ========================== Evaluation ========================== #
     test_file = data_dir / cfg.data.test_file

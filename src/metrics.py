@@ -1,4 +1,5 @@
 import torch
+import torch.functional as f
 from sklearn import metrics
 
 
@@ -30,11 +31,9 @@ def predict_objectosphere(logits, features, threshold):
         logits: Predicted logit values.
         features: Deep features of the samples.
         threshold: Threshold value to discard unknowns.
-
-    Returns:
-
+    Returns: Predicted classes
     """
-    scores = torch.nn.functional.softmax(logits, dim=1)
+    scores = f.softmax(logits, dim=1)
     pred_score, pred_class = torch.max(scores, dim=1)
     norms = torch.norm(features, p=2, dim=1)
     unk = (norms*pred_score) < threshold

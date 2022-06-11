@@ -40,9 +40,7 @@ def get_args():
                         help='Threshold tau for predicting: if max(S_c(X))>tau: class=c o/w x is unknown')
     parser.add_argument('--gpu', default=0, type=int, metavar='',
                         help='index of gpu to use for evaluation, default: 0')
-    args = parser.parse_args()
-    # Directory Parameters
-    return args
+    return parser.parse_args()
 
 
 def set_seeds(seed):
@@ -56,50 +54,50 @@ def set_seeds(seed):
     np.random.seed(seed)
 
 
-def load_checkpoint(file_path, model, opt=None):
+def load_checkpoint(filepath, model_):
     """Loads a checkpoint in CPU. If the model was saved using DistributedDataParallel, removes the
     word 'module' from the state_dictionary keys to load it in a single device"""
-    checkpoint = torch.load(file_path, map_location='cpu')
+    checkpoint = torch.load(filepath, map_location='cpu')
     key = list(checkpoint['model_state_dict'].keys())[0]
     if key[:6] == 'module':
         new_state_dict = OrderedDict()
         for k, v in checkpoint['model_state_dict'].items():
             key = k[7:]  # remove 'module'
             new_state_dict[key] = v
-        model.load_state_dict(new_state_dict)
+        model_.load_state_dict(new_state_dict)
     else:
-        model.load_state_dict(checkpoint['model_state_dict'])
+        model_.load_state_dict(checkpoint['model_state_dict'])
     print('epoch', checkpoint['epoch'])
     del checkpoint
-    print('Loaded model from: {}'.format(file_path))
-    return model
+    print('Loaded model from: {}'.format(filepath))
+    return model_
 
 
-def get_arrays(model, loader, device, args):
+def get_arrays(model_, loader, device_, args_):
     """Extract deep features, logits and targets for all dataset.
     Returns numpy arrays"""
-    model.eval()
+    model_.eval()
     with torch.no_grad():
-        N = len(loader.dataset)         # dataset length
-        C = model.logits.out_features   # logits output classes
-        F = model.net.fc.out_features       # features dimensionality
-        all_targets = torch.empty(N, device=device)  # store all targets
-        all_logits = torch.empty((N, C), device=device)   # store all logits
-        all_feat = torch.empty((N, F), device=device)   # store all features
-        all_scores = torch.empty((N, C), device=device)
+        data_len = len(loader.dataset)         # dataset length
+        logits_dim = model_.logits.out_features  # logits output classes
+        features_dim = model_.net.fc.out_features  # features dimensionality
+        all_targets = torch.empty(data_len, device=device_)  # store all targets
+        all_logits = torch.empty((data_len, logits_dim), device=device_)   # store all logits
+        all_feat = torch.empty((data_len, features_dim), device=device_)   # store all features
+        all_scores = torch.empty((data_len, logits_dim), device=device_)
 
         for i, (x, t) in tqdm(enumerate(loader), total=len(loader)):
             n = t.shape[0]  # current batch size, very last batch has different value
-            x = x.to(device)
-            t = t.to(device)
-            logits, features = model(x, features=True)
-            scores = torch.nn.functional.softmax(logits, dim=1)
-            # accumulate resutls in all_tensor
-            ix = i*args.batch_size
+            x = x.to(device_)
+            t = t.to(device_)
+            logits_, features_ = model(x, features=True)
+            scores_ = torch.nn.functional.softmax(logits_, dim=1)
+            # accumulate results in all_tensor
+            ix = i*args_.batch_size
             all_targets[ix:ix+n] = t
-            all_logits[ix:ix+n] = logits
-            all_feat[ix:ix+n] = features
-            all_scores[ix:ix+n] = scores
+            all_logits[ix:ix+n] = logits_
+            all_feat[ix:ix+n] = features_
+            all_scores[ix:ix+n] = scores_
         return(
             all_targets.detach().cpu().numpy(),
             all_logits.detach().cpu().numpy(),
@@ -115,9 +113,7 @@ if __name__ == '__main__':
     val_tf = tf.Compose(
         [tf.Resize(256),
          tf.CenterCrop(224),
-         tf.ToTensor(),
-         #  tf.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-         ]
+         tf.ToTensor()]
         )
     # create datasets
     val_ds = ImagenetDataset(args.val_file, args.imagenet_path, val_tf)
