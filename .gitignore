@@ -1,0 +1,4 @@
+/.idea/*
+/outputs/*
+/.vscode/*
+/src/__pycache__/*
