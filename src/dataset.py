@@ -11,8 +11,7 @@ class ImagenetDataset(Dataset):
     """ Imagenet Dataset. """
 
     def __init__(self, csv_file, images_path, transform=None):
-        """
-        Constructs an Imagenet Dataset from a CSV file. The file should list the path to the images and
+        """ Constructs an Imagenet Dataset from a CSV file. The file should list the path to the images and
         the corresponding label. For example: val/n02100583/ILSVRC2012_val_00013430.JPEG,   0
         Args:
             csv_file (Path): Path to the csv file with image paths and labels.
@@ -30,8 +29,7 @@ class ImagenetDataset(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, index):
-        """
-        Returns a tuple (image, label) of the dataset at the given index. If available, it applies
+        """ Returns a tuple (image, label) of the dataset at the given index. If available, it applies
         the defined transformations to the image. Images are converted to RGB format.
         Args:
             index (Int): Image index
@@ -52,3 +50,16 @@ class ImagenetDataset(Dataset):
     def has_unknowns(self):
         """ Returns true if the dataset contains known-unknown samples."""
         return -1 in self.unique_classes
+
+    def replace_unknown_label(self):
+        """Replaces unknown label (-1) to the biggest label + 1. This is required if the loss function
+        is softmax with garbage class. Updates the array of unique labels."""
+        biggest_label = self.unique_classes[-1]
+        self.dataset[1].replace(-1, biggest_label+1, inplace=True)
+        self.unique_classes[self.unique_classes == -1] = biggest_label+1
+        self.unique_classes.sort()
+
+    def calculate_class_weights(self):
+        counts = self.dataset.groupby(1).count().to_numpy()
+        class_weights = (len(self.dataset)/(counts * self.label_cnt))
+        return torch.from_numpy(class_weights).float()

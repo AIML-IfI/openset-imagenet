@@ -41,7 +41,7 @@ def predict_objectosphere(logits, features, threshold):
     return torch.stack((pred_class, pred_score), dim=1)
 
 
-def auc_score_binary(t_true, pred_score):
+def auc_score_binary(t_true, pred_score, unk_class = -1):
     """
     Calculates the binary AUC; known samples labeled as 1, known-unknown labeled as -1.
     Args:
@@ -55,7 +55,9 @@ def auc_score_binary(t_true, pred_score):
     if torch.is_tensor(pred_score):
         pred_score = pred_score.cpu().detach().numpy()
 
-    t_true[(t_true > -1)] = 1
+    known_classes = t_true != unk_class
+    t_true[known_classes] = 1
+    t_true[~known_classes] = -1
     return metrics.roc_auc_score(t_true, pred_score)
 
 

@@ -59,12 +59,22 @@ class EntropicOpensetLoss:
         return sample_loss
 
 
+class SoftmaxGarbageLoss:
+    def __init__():
+        pass
+    # TODO: Needs to calculate target weights
+
+
+    def __call__(self):
+        pass
+
+
 # Taken from https://github.com/pytorch/examples/tree/master/imagenet
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self):
-        self.reset()
         self.val, self.avg, self.sum, self.count = None, None, None, None
+        self.reset()
 
     def reset(self):
         self.val = 0

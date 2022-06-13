@@ -156,7 +156,7 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
     # Reset dictionary of training metrics
     for t in trackers.values():
         t.reset()
-
+    j = None
     # training loop
     for x, t in data_loader:
         model.train()  # To collect batch normalisation statistics
@@ -178,7 +178,7 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
             j = loss_fn(features, logits, t, cfg.loss.alpha)
             trackers['j_o'].update(loss_fn.objecto_value, n)
             trackers['j_e'].update(loss_fn.entropic_value, n)
-        else:
+        elif cfg.loss.type in ['softmaxGarbage', 'entropic', 'softmax']:
             j = loss_fn(logits, t)
             trackers['j'].update(j.item(), n)
 
@@ -253,15 +253,16 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
             scores = torch.nn.functional.softmax(logits, dim=1)
 
             if cfg.loss.type == 'objectosphere':
-                _ = loss_fn(features, logits, t, cfg.loss.alpha)
+                j = loss_fn(features, logits, t, cfg.loss.alpha)
                 trackers['j_o'].update(loss_fn.objecto_value, n)
                 trackers['j_e'].update(loss_fn.entropic_value, n)
-            elif cfg.loss.type == 'entropic':
+            elif cfg.loss.type == 'softmaxGarbage':
                 j = loss_fn(logits, t)
-                trackers['j_e'].update(j.item(), n)
-            elif cfg.loss.type == 'softmax':
+                trackers['j'].update(j.item(), n)
+            elif cfg.loss.type in ['entropic', 'softmax']:
                 j = loss_fn(logits, t)
-                trackers['j_s'].update(j.item(), n)
+                trackers['j'].update(j.item(), n)
+
             # accumulate partial results in empty tensors
             ix = i * cfg.batch_size
             all_t[ix:ix + n] = t
@@ -274,9 +275,11 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
         # validate using AUC, TODO: or the equal error rate.
         if cfg.loss.type == 'softmax':
             auc = metrics.auc_score_multiclass(all_t, all_scores)
+        elif cfg.loss.type == 'softmaxGarbage':
+            max_score, _ = torch.max(all_scores, dim=1)
+            auc = metrics.auc_score_binary(all_t, max_score, unk_class=loader.dataset.unique_classes[-1])
         else:
             max_score, _ = torch.max(all_scores, dim=1)
-            # print('max_score shape {}, t shape {}'.format(max_score.shape, all_t.shape))
             auc = metrics.auc_score_binary(all_t, max_score)
         trackers['auc'].update(auc, data_len)
 
@@ -316,7 +319,7 @@ def save_eval_arrays(model, loader, device, batch_size, file_name):
     logger.info('gt, logits, features, scores saved in: {}'.format(file_name))
 
 
-@hydra.main(config_path="conf", config_name="config")
+@hydra.main(config_path="../config", config_name="config")
 def main(cfg: DictConfig):
     # # Setting the logger
     msg_format = "{time:DD_MM_HH:mm} {message}"
@@ -372,6 +375,11 @@ def worker(gpu, cfg):
     if train_file.exists() and val_file.exists():
         train_ds = ImagenetDataset(train_file, cfg.data.imagenet_path, train_tf)
         val_ds = ImagenetDataset(val_file, cfg.data.imagenet_path, val_tf)
+
+        # If using garbage class, replaces label -1 to maximum label + 1
+        if cfg.loss.type == 'softmaxGarbage':
+            train_ds.replace_unknown_label()
+            val_ds.replace_unknown_label()
     else:
         raise FileNotFoundError('train/validation file does not exist')
 
@@ -397,20 +405,22 @@ def worker(gpu, cfg):
         pin_memory=True
     )
 
+    # setup device
+    device = torch.device('cuda:{}'.format(gpu))
+    set_device_gpu(index=gpu)
+
     # Callbacks
     early_stopping = None
     if cfg.patience > 0:
         early_stopping = EarlyStopping(patience=cfg.patience)
 
-    # setup device
-    device = torch.device('cuda:{}'.format(gpu))
-    set_device_gpu(index=gpu)
-
     # Set dictionaries to keep track of the losses
     t_metrics = defaultdict(AverageMeter)
     v_metrics = defaultdict(AverageMeter)
 
+    # set loss
     loss = None
+    class_weights = None
     if train_ds.has_unknowns():
         n_classes = train_ds.label_cnt - 1  # number of classes - 1 when training with unknowns
     else:
@@ -421,6 +431,10 @@ def worker(gpu, cfg):
         loss = EntropicLoss(n_classes, cfg.loss.w)
     elif cfg.loss.type == 'softmax':
         loss = torch.nn.CrossEntropyLoss().to(device)
+    elif cfg.loss.type == 'softmaxGarbage':
+        class_weights = train_ds.calculate_class_weights().to(device)
+        loss = torch.nn.CrossEntropyLoss(weight=class_weights).to(device)
+
 
     # Create the model
     model = ResNet50(fc_layer_dim=n_classes, out_features=n_classes, logit_bias=False)
