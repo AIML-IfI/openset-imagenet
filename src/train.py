@@ -256,10 +256,7 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
                 j = loss_fn(features, logits, t, cfg.loss.alpha)
                 trackers['j_o'].update(loss_fn.objecto_value, n)
                 trackers['j_e'].update(loss_fn.entropic_value, n)
-            elif cfg.loss.type == 'softmaxGarbage':
-                j = loss_fn(logits, t)
-                trackers['j'].update(j.item(), n)
-            elif cfg.loss.type in ['entropic', 'softmax']:
+            elif cfg.loss.type in ['entropic', 'softmax', 'softmaxGarbage']:
                 j = loss_fn(logits, t)
                 trackers['j'].update(j.item(), n)
 
@@ -435,7 +432,6 @@ def worker(gpu, cfg):
         class_weights = train_ds.calculate_class_weights().to(device)
         loss = torch.nn.CrossEntropyLoss(weight=class_weights).to(device)
 
-
     # Create the model
     model = ResNet50(fc_layer_dim=n_classes, out_features=n_classes, logit_bias=False)
     model.to(device)
@@ -535,22 +531,17 @@ def worker(gpu, cfg):
         if rank == 0:
             # Logging metrics to tensorboard object
             if cfg.loss.type == 'objectosphere':
-                writer.add_scalar('loss/objecto', t_metrics['j_o'].avg, epoch)
-                writer.add_scalar('loss/entropic', t_metrics['j_e'].avg, epoch)
+                writer.add_scalar('train/objecto', t_metrics['j_o'].avg, epoch)
+                writer.add_scalar('train/entropic', t_metrics['j_e'].avg, epoch)
                 writer.add_scalar('val/objecto', v_metrics['j_o'].avg, epoch)
                 writer.add_scalar('val/entropic', v_metrics['j_e'].avg, epoch)
-                if cfg.adv.who != 'no_adv':
-                    writer.add_scalar('loss/adversarial', t_metrics['j_adv'].avg, epoch)
-                    writer.add_scalar('val/adversarial', v_metrics['j_adv'].avg, epoch)
-            elif cfg.loss.type == 'entropic':
-                writer.add_scalar('loss/entropic', t_metrics['j_e'].avg, epoch)
-                writer.add_scalar('val/entropic', v_metrics['j_e'].avg, epoch)
-                if cfg.adv.who != 'no_adv':
-                    writer.add_scalar('loss/adversarial', t_metrics['j_adv'].avg, epoch)
-                    writer.add_scalar('val/adversarial', v_metrics['j_adv'].avg, epoch)
-            elif cfg.loss.type == 'softmax':
-                writer.add_scalar('loss/softmax', t_metrics['j_s'].avg, epoch)
-                writer.add_scalar('val/softmax', v_metrics['j_s'].avg, epoch)
+            elif cfg.loss.type in ['entropic', 'softmax', 'softmaxGarbage']:
+                writer.add_scalar('train/loss', t_metrics['j'].avg, epoch)
+                writer.add_scalar('val/loss', v_metrics['j'].avg, epoch)
+            if cfg.adv.who != 'no_adv':
+                writer.add_scalar('train/adversarial', t_metrics['j_adv'].avg, epoch)
+                writer.add_scalar('val/adversarial', v_metrics['j_adv'].avg, epoch)
+            # Validation metrics
             writer.add_scalar('val/auc', v_metrics['auc'].avg, epoch)
             writer.add_scalar('val/conf', v_metrics['conf'].avg, epoch)
 
