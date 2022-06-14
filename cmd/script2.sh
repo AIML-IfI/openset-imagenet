@@ -16,8 +16,7 @@
 # CUDA_VISIBLE_DEVICES=2 nice -n 19 python3 train.py exp_name=o3n_a0.1_w0.1_l0.1_e5_adam_d30_g0.1_full_ep40_FOA checkpoint=outputs/o3n_a0.01_w0.1_l1_e0_adam_d40_g0.3/o3n_a0.01_w0.1_l1_e0_adam_d40_g0.3_curr.pth train_mode=finetune data.train_file=p3/train_kkp3.csv data.val_file=p3/validation.csv data.test_file=p3/test.csv loss.type=objectosphere loss.w=0.1 loss.xi=10 loss.alpha=0.1 opt.type=adam opt.lr=0.0001 opt.decay=30 opt.gamma=0.1 batch_size=64 epochs=40 adv.who=fgsm adv.epsilon=0.5 adv.mode=full workers=8
 # CUDA_VISIBLE_DEVICES=2 nice -n 0 python3 train.py exp_name=o3n_a0.1_w0.1_l0.5_e1_sgd_d30_g0.1_filter_ep40_FOAU checkpoint=outputs/o3n_a0.01_w0.1_l1_e0_adam_d40_g0.3/o3n_a0.01_w0.1_l1_e0_adam_d40_g0.3_curr.pth train_mode=finetune data.train_file=p3/train.csv data.val_file=p3/validation.csv data.test_file=p3/test.csv loss.type=objectosphere loss.w=0.01 loss.xi=10 loss.alpha=0.1 opt.type=sgd opt.lr=0.0001 opt.decay=30 opt.gamma=0.1 batch_size=64 epochs=40 adv.who=fgsm adv.epsilon=0.1 adv.mode=filter workers=4
 
-
-
+CUDA_VISIBLE_DEVICES=2 nice -n 19 python3 src/train.py exp_name=g1n_l1_e0_adam train_mode=train data.train_file=v1/p1_train.csv data.val_file=v1/p1_val.csv data.test_file=v1/p1_test.csv loss.type=softmaxGarbage opt.type=adam opt.lr=0.001 batch_size=64 epochs=100 workers=4 seed=42
 
 
 
