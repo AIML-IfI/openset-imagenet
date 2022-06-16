@@ -46,7 +46,7 @@ adv:
 dist:
   distributed: False
   gpus: 1
-  port: 8889
+  port: "8889"
 
 # Hydra Parameters
 hydra:

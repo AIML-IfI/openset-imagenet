@@ -272,9 +272,17 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
         # validate using AUC
         if cfg.loss.type == 'softmax':
             auc = metrics.auc_score_multiclass(all_t, all_scores)
+            
         elif cfg.loss.type == 'BGsoftmax':
-            max_score, _ = torch.max(all_scores, dim=1)
-            auc = metrics.auc_score_binary(all_t, max_score, unk_class=loader.dataset.unique_classes[-1])
+            tmp_scores = torch.empty(data_len, device=device).detach()
+            kn = all_t != -1
+            kn_scores, _ = torch.max(all_scores[kn, :-1], dim=1)  # Removes last column of the kn scores
+            unk_scores = all_scores[~kn, -1]  # Takes only the last column of unknowns
+
+            tmp_scores[kn] = kn_scores
+            tmp_scores[~kn] = unk_scores
+            auc = metrics.auc_score_binary(all_t, tmp_scores,
+                                           unk_class=loader.dataset.unique_classes[-1])
         else:
             max_score, _ = torch.max(all_scores, dim=1)
             auc = metrics.auc_score_binary(all_t, max_score)
@@ -572,7 +580,16 @@ def worker(gpu, cfg):
 
     # ========================== Evaluation ========================== #
     test_file = data_dir / cfg.data.test_file
+    val_ds = ImagenetDataset(val_file, cfg.data.imagenet_path, val_tf)
     test_ds = ImagenetDataset(test_file, cfg.data.imagenet_path, val_tf)
+
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=cfg.batch_size,
+        shuffle=True,
+        num_workers=cfg.workers,
+        pin_memory=True
+    )
 
     test_loader = DataLoader(
         test_ds,
@@ -581,6 +598,7 @@ def worker(gpu, cfg):
         num_workers=cfg.workers,
         pin_memory=True
     )
+
     logger.info('Evaluating in validation and test datasets')
     arrays_path = '{}_curr_val_arr.npz'.format(cfg.exp_name)  # Current model is the from last epoch
     save_eval_arrays(model, val_loader, device, cfg.batch_size, arrays_path)
