@@ -41,9 +41,8 @@ def predict_objectosphere(logits, features, threshold):
     return torch.stack((pred_class, pred_score), dim=1)
 
 
-def auc_score_binary(t_true, pred_score, unk_class = -1):
-    """
-    Calculates the binary AUC; known samples labeled as 1, known-unknown labeled as -1.
+def auc_score_binary(t_true, pred_score, unk_class=-1):
+    """ Calculates the binary AUC; known samples labeled as 1, known-unknown labeled as -1.
     Args:
         t_true: Target label of the samples.
         pred_score: Predicted softmax score of the samples.

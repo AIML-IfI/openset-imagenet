@@ -86,7 +86,7 @@ def load_checkpoint(model, ckpt_path, opt=None, device='cpu', scheduler=None):
     Args:
         model (torch nn.module): Requires a model to load the state dictionary
         ckpt_path (Path): File path
-        opt (torch optimizer, optional): An optimizer to load the state dictionary. Defaults to None.
+        opt (torch optimizer, optional): An optimiser to load the state dictionary. Defaults to None.
         device (str, optional): Device to load the checkpoint, can be loaded directly to a cuda device.
         Defaults to 'cpu'.
         scheduler (torch lr_scheduler, optional): Learning rate scheduler. Defaults to None.
@@ -178,7 +178,7 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
             j = loss_fn(features, logits, t, cfg.loss.alpha)
             trackers['j_o'].update(loss_fn.objecto_value, n)
             trackers['j_e'].update(loss_fn.entropic_value, n)
-        elif cfg.loss.type in ['softmaxGarbage', 'entropic', 'softmax']:
+        elif cfg.loss.type in ['BGsoftmax', 'entropic', 'softmax']:
             j = loss_fn(logits, t)
             trackers['j'].update(j.item(), n)
 
@@ -256,7 +256,7 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
                 j = loss_fn(features, logits, t, cfg.loss.alpha)
                 trackers['j_o'].update(loss_fn.objecto_value, n)
                 trackers['j_e'].update(loss_fn.entropic_value, n)
-            elif cfg.loss.type in ['entropic', 'softmax', 'softmaxGarbage']:
+            elif cfg.loss.type in ['entropic', 'softmax', 'BGsoftmax']:
                 j = loss_fn(logits, t)
                 trackers['j'].update(j.item(), n)
 
@@ -269,10 +269,10 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
             conf = metrics.confidence(scores, t, 1 / n_classes)
             trackers['conf'].update((conf[0] / n).item(), n)  # average confidence
 
-        # validate using AUC, TODO: or the equal error rate.
+        # validate using AUC
         if cfg.loss.type == 'softmax':
             auc = metrics.auc_score_multiclass(all_t, all_scores)
-        elif cfg.loss.type == 'softmaxGarbage':
+        elif cfg.loss.type == 'BGsoftmax':
             max_score, _ = torch.max(all_scores, dim=1)
             auc = metrics.auc_score_binary(all_t, max_score, unk_class=loader.dataset.unique_classes[-1])
         else:
@@ -374,7 +374,7 @@ def worker(gpu, cfg):
         val_ds = ImagenetDataset(val_file, cfg.data.imagenet_path, val_tf)
 
         # If using garbage class, replaces label -1 to maximum label + 1
-        if cfg.loss.type == 'softmaxGarbage':
+        if cfg.loss.type == 'BGsoftmax':
             train_ds.replace_unknown_label()
             val_ds.replace_unknown_label()
     else:
@@ -428,7 +428,7 @@ def worker(gpu, cfg):
         loss = EntropicLoss(n_classes, cfg.loss.w)
     elif cfg.loss.type == 'softmax':
         loss = torch.nn.CrossEntropyLoss().to(device)
-    elif cfg.loss.type == 'softmaxGarbage':
+    elif cfg.loss.type == 'BGsoftmax':
         class_weights = train_ds.calculate_class_weights().to(device)
         loss = torch.nn.CrossEntropyLoss(weight=class_weights).to(device)
 
@@ -535,7 +535,7 @@ def worker(gpu, cfg):
                 writer.add_scalar('train/entropic', t_metrics['j_e'].avg, epoch)
                 writer.add_scalar('val/objecto', v_metrics['j_o'].avg, epoch)
                 writer.add_scalar('val/entropic', v_metrics['j_e'].avg, epoch)
-            elif cfg.loss.type in ['entropic', 'softmax', 'softmaxGarbage']:
+            elif cfg.loss.type in ['entropic', 'softmax', 'BGsoftmax']:
                 writer.add_scalar('train/loss', t_metrics['j'].avg, epoch)
                 writer.add_scalar('val/loss', v_metrics['j'].avg, epoch)
             if cfg.adv.who != 'no_adv':
@@ -582,7 +582,7 @@ def worker(gpu, cfg):
         pin_memory=True
     )
     logger.info('Evaluating in validation and test datasets')
-    arrays_path = '{}_curr_val_arr.npz'.format(cfg.exp_name)  # Current model is the model from last epoch
+    arrays_path = '{}_curr_val_arr.npz'.format(cfg.exp_name)  # Current model is the from last epoch
     save_eval_arrays(model, val_loader, device, cfg.batch_size, arrays_path)
     arrays_path = '{}_curr_test_arr.npz'.format(cfg.exp_name)
     save_eval_arrays(model, test_loader, device, cfg.batch_size, arrays_path)

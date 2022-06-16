@@ -1,6 +1,5 @@
 """Independent code for inference in testing dataset. The functions are included
 and executed in the train.py script."""
-import random
 import torch
 import argparse
 import numpy as np
@@ -18,40 +17,28 @@ def get_args():
     parser = argparse.ArgumentParser('Hyperparameters')
 
     # directory parameters
-    parser.add_argument('--imagenet_path', default=Path(r'/local/scratch/datasets/ImageNet/ILSVRC2012/'),
+    parser.add_argument('--imagenet_path',
+                        default=Path(r'/local/scratch/datasets/ImageNet/ILSVRC2012/'),
                         type=Path, help='Imagenet directory', metavar='')
     parser.add_argument('--exp_name', default='', type=str, metavar='',
-                        help='Name of current experiment, used for naming file of logs and checkpoints')
+                        help='Name of current experiment, used for naming logs and checkpoints')
     parser.add_argument('--output_dir', default=Path(__file__).parent, type=Path, metavar='',
-                        help='output directory to save arrays. Default is the same directory as the script')
-    parser.add_argument('--checkpoint', type=Path, help='Path to saved checkpoint .pth file', metavar='')
-    parser.add_argument('--val_file', default=Path(__file__).parent/'validation.csv', type=Path, metavar='',
-                        help='path to validation file')
-    parser.add_argument('--test_file', default=Path(__file__).parent/'test.csv', type=str, metavar='',
-                        help='path to test file')
+                        help='output directory. Default is the same directory as the script')
+    parser.add_argument('--checkpoint', type=Path, help='Path to saved checkpoint .pth file',
+                        metavar='')
+    parser.add_argument('--val_file', default=Path(__file__).parent / 'validation.csv', type=Path,
+                        metavar='', help='path to validation file')
+    parser.add_argument('--test_file', default=Path(__file__).parent / 'test.csv', type=str,
+                        metavar='', help='path to test file')
     # common parameters
     parser.add_argument('--batch_size', default=32, type=int, help='Default: 32', metavar='')
     parser.add_argument('--workers', default=4, type=int, metavar='',
                         help='Data loaders number of workers, default:4')
-    parser.add_argument('--seed', default=343443, type=int, help='seed default 343443', metavar='')
     parser.add_argument('--loss', default='objectosphere', metavar='',
-                        help='[objectosphere, entropic, softmax]')
-    parser.add_argument('-t', '--threshold', default=0.8, type=float, metavar='',
-                        help='Threshold tau for predicting: if max(S_c(X))>tau: class=c o/w x is unknown')
-    parser.add_argument('--gpu', default=0, type=int, metavar='',
-                        help='index of gpu to use for evaluation, default: 0')
+                        help='[objectosphere, entropic, softmax, BGsoftmax]')
+    parser.add_argument('-t', '--threshold', default=0.5, type=float, metavar='',
+                        help='Threshold tau: if max(S_c(X))>tau: class=c o/w x is unknown')
     return parser.parse_args()
-
-
-def set_seeds(seed):
-    """
-    Sets the seed for different sources of randomness
-    Args:
-        seed (int): Integer
-    """
-    torch.manual_seed(seed)
-    random.seed(seed)
-    np.random.seed(seed)
 
 
 def load_checkpoint(filepath, model_):
@@ -93,11 +80,11 @@ def get_arrays(model_, loader, device_, args_):
             logits_, features_ = model(x, features=True)
             scores_ = torch.nn.functional.softmax(logits_, dim=1)
             # accumulate results in all_tensor
-            ix = i*args_.batch_size
-            all_targets[ix:ix+n] = t
-            all_logits[ix:ix+n] = logits_
-            all_feat[ix:ix+n] = features_
-            all_scores[ix:ix+n] = scores_
+            ix = i * args_.batch_size
+            all_targets[ix:ix + n] = t
+            all_logits[ix:ix + n] = logits_
+            all_feat[ix:ix + n] = features_
+            all_scores[ix:ix + n] = scores_
         return(
             all_targets.detach().cpu().numpy(),
             all_logits.detach().cpu().numpy(),
@@ -108,13 +95,12 @@ def get_arrays(model_, loader, device_, args_):
 
 if __name__ == '__main__':
     args = get_args()
-    set_seeds(args.seed)
     # Create transformations
     val_tf = tf.Compose(
         [tf.Resize(256),
          tf.CenterCrop(224),
          tf.ToTensor()]
-        )
+    )
     # create datasets
     val_ds = ImagenetDataset(args.val_file, args.imagenet_path, val_tf)
     test_ds = ImagenetDataset(args.test_file, args.imagenet_path, val_tf)
@@ -132,10 +118,9 @@ if __name__ == '__main__':
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, num_workers=args.workers)
 
     # create device
-    device = torch.device('cuda:{}'.format(args.gpu))
-    # device = torch.device("cpu")
+    device = torch.device('cuda')
 
-    if args.loss == 'softmax':
+    if args.loss in ['softmax', 'BGsoftmax']:
         n_classes = val_ds.label_cnt
         print('is softmax', n_classes)
     else:
@@ -150,7 +135,7 @@ if __name__ == '__main__':
     print('Validation data:')
     # extracting arrays for validation
     gt, logits, features, scores = get_arrays(model, val_loader, device, args)
-    file_path = args.output_dir/'{}_val_arr.npz'.format(args.exp_name)
+    file_path = args.output_dir / '{}_val_arr.npz'.format(args.exp_name)
     np.savez(
         file_path,
         gt=gt,
@@ -163,7 +148,7 @@ if __name__ == '__main__':
     # extracting arrays for test
     print('Test data:')
     gt, logits, features, scores = get_arrays(model, test_loader, device, args)
-    file_path = args.output_dir/'{}_test_arr.npz'.format(args.exp_name)
+    file_path = args.output_dir / '{}_test_arr.npz'.format(args.exp_name)
     np.savez(
         file_path,
         gt=gt,
