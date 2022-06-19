@@ -160,7 +160,7 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
     # training loop
     for x, t in data_loader:
         model.train()  # To collect batch normalisation statistics
-        n = t.shape[0]  # Samples in current batch
+        batch_len = t.shape[0]  # Samples in current batch
         optimizer.zero_grad(set_to_none=True)
         x = x.to(device, non_blocking=True)
         t = t.to(device, non_blocking=True)
@@ -176,11 +176,11 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
         # Calculate loss
         if cfg.loss.type == 'objectosphere':
             j = loss_fn(features, logits, t, cfg.loss.alpha)
-            trackers['j_o'].update(loss_fn.objecto_value, n)
-            trackers['j_e'].update(loss_fn.entropic_value, n)
+            trackers['j_o'].update(loss_fn.objecto_value, batch_len)
+            trackers['j_e'].update(loss_fn.entropic_value, batch_len)
         elif cfg.loss.type in ['BGsoftmax', 'entropic', 'softmax']:
             j = loss_fn(logits, t)
-            trackers['j'].update(j.item(), n)
+            trackers['j'].update(j.item(), batch_len)
 
         j.backward()
 
@@ -201,7 +201,7 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
                 correct_idx = filter_correct(logits, t, cfg.threshold, features=None)
                 num_adv_samples = len(correct_idx[0])
             elif cfg.adv.mode == 'full':  # Perturb all samples
-                correct_idx = torch.arange(n, requires_grad=False, device=device)
+                correct_idx = torch.arange(batch_len, requires_grad=False, device=device)
                 num_adv_samples = len(correct_idx)
             trackers['num_adv'].update(num_adv_samples)
 
@@ -242,11 +242,11 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
     model.eval()
     with torch.no_grad():
         data_len = len(loader.dataset)  # size of dataset
-        all_t = torch.empty(data_len, device=device).detach()  # store all targets
+        all_t = torch.empty(data_len, device=device, dtype=torch.int64).detach()  # store all targets
         all_scores = torch.empty((data_len, n_classes), device=device).detach()  # store all scores
 
         for i, (x, t) in enumerate(loader):
-            n = t.shape[0]  # current batch size, last batch has different value
+            batch_len = t.shape[0]  # current batch size, last batch has different value
             x = x.to(device, non_blocking=True)
             t = t.to(device, non_blocking=True)
             logits, features = model(x)
@@ -254,39 +254,52 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
 
             if cfg.loss.type == 'objectosphere':
                 j = loss_fn(features, logits, t, cfg.loss.alpha)
-                trackers['j_o'].update(loss_fn.objecto_value, n)
-                trackers['j_e'].update(loss_fn.entropic_value, n)
+                trackers['j_o'].update(loss_fn.objecto_value, batch_len)
+                trackers['j_e'].update(loss_fn.entropic_value, batch_len)
             elif cfg.loss.type in ['entropic', 'softmax', 'BGsoftmax']:
                 j = loss_fn(logits, t)
-                trackers['j'].update(j.item(), n)
+                trackers['j'].update(j.item(), batch_len)
 
             # accumulate partial results in empty tensors
             ix = i * cfg.batch_size
-            all_t[ix:ix + n] = t
-            all_scores[ix:ix + n] = scores
+            all_t[ix: ix + batch_len] = t
+            all_scores[ix: ix + batch_len] = scores
 
-            # average confidence tracking
-            conf = metrics.confidence(scores, t, 1 / n_classes)
-            trackers['conf'].update((conf[0] / n).item(), n)  # average confidence
-
-        # validate using AUC
+        # Validation cases for different losses:
+        # Softmax:  metric: multiclass AUC
+        #           score, target: without unknowns
+        # Entropic: metric: Binary AUC (kn vs unk)
+        #           score: does not have unknown class
+        #           target: unknown class -1
+        # BGsoftmax: metric: Binary AUC (kn vs unk)
+        #           score: has additional class for unknown samples, remove it
+        #           target: unknown class -1
+        min_unk_score = None
         if cfg.loss.type == 'softmax':
+            min_unk_score = 0.0
             auc = metrics.auc_score_multiclass(all_t, all_scores)
-            
-        elif cfg.loss.type == 'BGsoftmax':
-            tmp_scores = torch.empty(data_len, device=device).detach()
-            kn = all_t != -1
-            kn_scores, _ = torch.max(all_scores[kn, :-1], dim=1)  # Removes last column of the kn scores
-            unk_scores = all_scores[~kn, -1]  # Takes only the last column of unknowns
 
-            tmp_scores[kn] = kn_scores
-            tmp_scores[~kn] = unk_scores
-            auc = metrics.auc_score_binary(all_t, tmp_scores,
-                                           unk_class=loader.dataset.unique_classes[-1])
-        else:
-            max_score, _ = torch.max(all_scores, dim=1)
-            auc = metrics.auc_score_binary(all_t, max_score)
+        elif cfg.loss.type in ['entropic', 'objectosphere']:
+            min_unk_score = 1 / n_classes
+            max_kn_scores = torch.max(all_scores, dim=1)[0]
+            auc = metrics.auc_score_binary(all_t, max_kn_scores)
+
+        elif cfg.loss.type == 'BGsoftmax':
+            min_unk_score = 0.0
+            # Removes last column of scores to calculate the max score of any known class
+            all_scores = all_scores[:, :-1]
+            # Replaces the biggest class label with -1
+            biggest_label = loader.dataset.unique_classes[-1]
+            all_t[all_t == biggest_label] = -1
+            max_kn_scores = torch.max(all_scores[:, :-1], dim=1)[0]
+            auc = metrics.auc_score_binary(all_t, max_kn_scores)
+
+        # kn_c, un_c: confidence for known or unknown samples.
+        # kn_len, un_len: number of known or unknown samples.
+        kn_c, kn_len, un_c, un_len = metrics.confidence(all_scores, all_t, min_unk_score)
         trackers['auc'].update(auc, data_len)
+        trackers['conf_kn'].update(kn_c, kn_len)
+        trackers['conf_unk'].update(un_c, un_len)
 
 
 def save_eval_arrays(model, loader, device, batch_size, file_name):
@@ -383,6 +396,7 @@ def worker(gpu, cfg):
 
         # If using garbage class, replaces label -1 to maximum label + 1
         if cfg.loss.type == 'BGsoftmax':
+            # Only change the unknown label of the training dataset
             train_ds.replace_unknown_label()
             val_ds.replace_unknown_label()
     else:
@@ -551,7 +565,8 @@ def worker(gpu, cfg):
                 writer.add_scalar('val/adversarial', v_metrics['j_adv'].avg, epoch)
             # Validation metrics
             writer.add_scalar('val/auc', v_metrics['auc'].avg, epoch)
-            writer.add_scalar('val/conf', v_metrics['conf'].avg, epoch)
+            writer.add_scalar('val/conf_kn', v_metrics['conf_kn'].avg, epoch)
+            writer.add_scalar('val/conf_unk', v_metrics['conf_unk'].avg, epoch)
 
             #  training information on console
             val_time = time.time() - train_time - epoch_time  # validation+metrics writer+save model time

@@ -54,7 +54,7 @@ class ImagenetDataset(Dataset):
 
     def replace_unknown_label(self):
         """Replaces unknown label (-1) to the biggest label + 1. This is required if the loss
-        function is softmax with garbage class. Updates the array of unique labels."""
+        function is BGsoftmax. Updates the array of unique labels."""
         biggest_label = self.unique_classes[-1]
         self.dataset[1].replace(-1, biggest_label + 1, inplace=True)
         self.unique_classes[self.unique_classes == -1] = biggest_label + 1

@@ -78,46 +78,32 @@ def get_ccr_at_fpr(target, scores, tau, split='test'):
         return tau, corr_rate, known_unk_rate
 
 
-def calculate_oscr(gt, scores, norms=None, points=1000, loss=None):
-    if loss == 'BGsoftmax':
-        scores = scores[:, :-1]  # Removes the last scores (background class)
-    # predictions
+def calculate_oscr(gt, scores, points=1000, unk_label=-1):
+    # Change the unk_label to calculate for kn_unknown or unk_unknown
+    knowns = gt > 0
+    unknowns = gt == unk_label
+
+    # Get total number of samples of each type
+    total_kn = np.sum(knowns)         # Cardinality of known samples
+    total_unk = np.sum(unknowns)    # Cardinality of unknoen samples
+
+    ccr, fpr = [], []
+
+    # Get the biggest score between unknowns
+    max_unk_score = np.max(scores[unknowns])
+
+    # Predictions
     pred_class = np.argmax(scores, axis=1)
-    pred_score = scores[np.arange(len(scores)), pred_class]
-    max_score = np.amax(scores, axis=1)
+    pred_score = np.max(scores, axis=1)
 
-    if norms is not None:  # This creates thresholds over the product of norms*scores
-        pred_score = pred_score * norms
-
-    # Total number of samples in:
-    kn_unk_label = -1
-    unk_unk_label = -2
-
-    dc = np.sum(gt >= 0)  # Dc = Cardinality of known samples
-    db = np.sum(gt == kn_unk_label)  # Db = Cardinality of known unknown samples
-    du = np.sum(gt < 0)  # Du = All unknown samples (Db U Da)
-    da = np.sum(gt == unk_unk_label)  # Da = Cardinality of unknown_unknown samples
-
-    ccr, fpr_db, fpr_da, fpr_du = [], [], [], []
-    for tau in np.linspace(start=0, stop=1, num=points):
+    for tau in np.linspace(start=0, stop=max_unk_score, num=points):
         # correct classification rate
-        corr_rate = np.count_nonzero((gt >= 0) * (pred_class == gt) * (pred_score > tau)) / dc
-        ccr.append(corr_rate)
-
-        # false positive rate known unknown
-        known_unk_rate = np.count_nonzero((gt == kn_unk_label) * (max_score > tau)) / db
-        fpr_db.append(known_unk_rate)
-
-        # false positive rate all unknowns
-        unk_rate = np.count_nonzero(((gt == kn_unk_label) | (gt == unk_unk_label))
-                                    * (max_score > tau)) / du
-        fpr_du.append(unk_rate)
-
-        #  false positive rate uses unknown_unknown
-        if da != 0:
-            unk_unk_rate = np.count_nonzero((gt == unk_unk_label) * (max_score > tau)) / da
-            fpr_da.append(unk_unk_rate)
-    return ccr, fpr_db, fpr_da, fpr_du
+        val = np.count_nonzero(knowns * (pred_class == gt) * (pred_score >= tau)) / total_kn
+        ccr.append(val)
+        # false positive rate
+        val = np.count_nonzero(unknowns * (pred_score >= tau)) / total_unk
+        fpr.append(val)
+    return ccr, fpr
 
 
 def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
@@ -135,7 +121,7 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     elif scale == 'semilog':
         ax.set_xscale('log')
         ax.set_ylim(0, 1)
-        ax.set_xlim(None, 1)
+        # ax.set_xlim(1e-10, 1)
     else:
         ax.set_ylim(0, 1)
         ax.set_xlim(None, None)
@@ -147,24 +133,30 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     return ax
 
 
-def plot_oscr(arrays, split='val', scale='linear', use_norms=False, title=None, ax_label_font=13,
-              ax=None, legend_pos="lower right", points=1000):
+def plot_oscr(arrays, scale='linear', title=None, ax_label_font=13,
+              ax=None, legend_pos="lower right", unk_label=-1, points=1000):
 
     colors = sns.color_palette("tab10")
     for idx, exp_name in enumerate(arrays):
-        norms = None
-        if use_norms:
-            feat = arrays[exp_name]['features']
-            norms = np.linalg.norm(feat, axis=1)
+        # norms = None
+        # if use_norms:
+        #     feat = arrays[exp_name]['features']
+        #     norms = np.linalg.norm(feat, axis=1)
+
         loss = 'BGsoftmax' if exp_name.startswith('$B') else None  # Is a BGsoftmax experiment
-        # print(loss, exp_name)
-        ccr, fpr_db, fpr_da, _ = calculate_oscr(arrays[exp_name]['gt'],
-                                                arrays[exp_name]['scores'],
-                                                norms, points, loss)
+        gt = arrays[exp_name]['gt']
+        scores = arrays[exp_name]['scores']
+
+        if loss is not None:    # If the loss is BGsoftmax then removes the background class
+            scores = scores[:, :-1]
+
+        ccr, fpr = calculate_oscr(gt, scores, points, unk_label)
 
         # linestyle = 'solid' if base_line and idx == 0 else 'dashed'
-        fpr = fpr_da if split == 'test' else fpr_db
-        ax = plot_single_oscr(fpr, ccr, ax, exp_name, colors[idx], False, scale)
+        ax = plot_single_oscr(x=fpr, y=ccr,
+                              ax=ax, exp_name=exp_name,
+                              color=colors[idx], baseline=False,
+                              scale=scale)
 
     # plot parameters:
     if title is not None:

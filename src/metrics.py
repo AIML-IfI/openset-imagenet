@@ -10,17 +10,21 @@ def confidence(scores, target, negative_offset=0.1):
         scores: Softmax scores of the samples.
         target: Target label of the samples.
         negative_offset: Confidence offset value, typically 1/number_of_classes.
-
     Returns: Confidence value.
     """
     with torch.no_grad():
         known = target >= 0
-        conf = 0.0
-        if torch.sum(known):
-            conf += torch.sum(scores[known, target[known]])
-        if torch.sum(~known):
-            conf += torch.sum(1.0 + negative_offset - torch.max(scores[~known], dim=1)[0])
-    return torch.tensor((conf, len(scores)))
+        len_known = sum(known).item()   # Total known samples in data
+        len_unk = sum(~known).item()    # Total unknown samples in data
+        conf_kn = 0.0
+        conf_unk = 0.0
+        if len_known:
+            # Average confidence known samples
+            conf_kn = torch.sum(scores[known, target[known]]) / len_known
+        if len_unk:
+            # Average confidence unknown samples
+            conf_unk = torch.sum(1.0 + negative_offset - torch.max(scores[~known], dim=1)[0]) / len_unk
+    return conf_kn.item(), len_known, conf_unk.item(), len_unk
 
 
 def predict_objectosphere(logits, features, threshold):
@@ -45,8 +49,8 @@ def auc_score_binary(t_true, pred_score, unk_class=-1):
     """ Calculates the binary AUC; known samples labeled as 1, known-unknown labeled as -1.
     Args:
         t_true: Target label of the samples.
-        pred_score: Predicted softmax score of the samples.
-
+        pred_score: Maximum predicted scores for a known class.
+        unk_class: Class reserved for unknown samples.
     Returns: Binary AUC, measures the separation between known and unknown samples.
     """
     if torch.is_tensor(t_true):
@@ -54,9 +58,9 @@ def auc_score_binary(t_true, pred_score, unk_class=-1):
     if torch.is_tensor(pred_score):
         pred_score = pred_score.cpu().detach().numpy()
 
-    known_classes = t_true != unk_class
-    t_true[known_classes] = 1
-    t_true[~known_classes] = -1
+    kn = t_true != unk_class
+    t_true[kn] = 1
+    t_true[~kn] = -1
     return metrics.roc_auc_score(t_true, pred_score)
 
 
