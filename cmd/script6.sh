@@ -47,5 +47,8 @@
 # CUDA_VISIBLE_DEVICES=6 nice -n 0 python3 train.py exp_name=e3n_w1_l0.1_e2_sgd_filter_ep40_FSA checkpoint=outputs/s3n_l1_e0_adam_d40_g0.3/s3n_l1_e0_adam_d40_g0.3_curr.pth train_mode=finetune data.train_file=p3/train_kkp3.csv data.val_file=p3/validation.csv data.test_file=p3/test.csv loss.type=entropic loss.w=1 opt.type=sgd opt.lr=0.0001 batch_size=64 epochs=40 adv.who=fgsm adv.epsilon=0.2 adv.mode=filter workers=4
 # CUDA_VISIBLE_DEVICES=6 nice -n 19 python3 train.py exp_name=e3n_w0.1_l10_e4_adam_filter_ep40_FEAU checkpoint=outputs/e3n_w0.1_l1_e0_adam_d40_g0.3/e3n_w0.1_l1_e0_adam_d40_g0.3_curr.pth train_mode=finetune data.train_file=p3/train.csv data.val_file=p3/validation.csv data.test_file=p3/test.csv loss.type=entropic loss.w=0.1 opt.type=adam opt.lr=0.01 batch_size=64 epochs=40 adv.who=fgsm adv.epsilon=0.4 adv.mode=filter workers=10 seed=9572
 
+CUDA_VISIBLE_DEVICES=6 nice -n 19 python3 src/train.py exp_name=e2n_l1_e0_adam train_mode=train data.train_file=v1/p2_train.csv data.val_file=v1/p2_val.csv data.test_file=v1/p2_test.csv loss.type=entropic opt.type=adam opt.lr=0.001 batch_size=64 epochs=120 workers=4 seed=42
+CUDA_VISIBLE_DEVICES=6 nice -n 19 python3 src/train.py exp_name=e3n_l1_e0_adam train_mode=train data.train_file=v1/p3_train.csv data.val_file=v1/p3_val.csv data.test_file=v1/p3_test.csv loss.type=entropic opt.type=adam opt.lr=0.001 batch_size=64 epochs=120 workers=4 seed=42
+
 
 

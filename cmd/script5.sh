@@ -42,3 +42,7 @@
 # CUDA_VISIBLE_DEVICES=5 nice -n 19 python3 train.py exp_name=on_a1_w0.1_l1_e2_adam_d30_g0.1_full_ep40_FOAU checkpoint=outputs/o3n_a0.01_w0.1_l1_e0_adam_d40_g0.3/o3n_a0.01_w0.1_l1_e0_adam_d40_g0.3_curr.pth train_mode=finetune data.train_file=p3/train.csv data.val_file=p3/validation.csv data.test_file=p3/test.csv loss.type=objectosphere loss.w=0.1 loss.xi=10 loss.alpha=1 opt.type=adam opt.lr=0.001 opt.decay=30 opt.gamma=0.1 batch_size=64 epochs=40 adv.who=fgsm adv.epsilon=0.2 adv.mode=full workers=10
 # CUDA_VISIBLE_DEVICES=5 nice -n 19 python3 train.py exp_name=e1n_w1_l0.1_e5_sgd_filter_ep40_FSA checkpoint=outputs/s1n_l1_e0_adam_d40_g0.3/s1n_l1_e0_adam_d40_g0.3_curr.pth train_mode=finetune data.train_file=p1/train_kkp1.csv data.val_file=p1/validation.csv data.test_file=p1/test.csv loss.type=entropic loss.w=1 opt.type=sgd opt.lr=0.0001 batch_size=64 epochs=40 adv.who=fgsm adv.epsilon=0.5 adv.mode=filter workers=8
 # CUDA_VISIBLE_DEVICES=5 nice -n 19 python3 train.py exp_name=e3n_w0.1_l10_e2_adam_filter_ep40_FEAU checkpoint=outputs/e3n_w0.1_l1_e0_adam_d40_g0.3/e3n_w0.1_l1_e0_adam_d40_g0.3_curr.pth train_mode=finetune data.train_file=p3/train.csv data.val_file=p3/validation.csv data.test_file=p3/test.csv loss.type=entropic loss.w=0.1 opt.type=adam opt.lr=0.01 batch_size=64 epochs=40 adv.who=fgsm adv.epsilon=0.2 adv.mode=filter workers=10 seed=9572
+
+
+
+
