@@ -137,7 +137,7 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
 def plot_oscr(arrays, scale='linear', title=None, ax_label_font=13,
               ax=None, legend_pos="lower right", unk_label=-1, points=1000):
 
-    colors = sns.color_palette("tab10")
+    colors = sns.color_palette("deep")
     for idx, exp_name in enumerate(arrays):
         # norms = None
         # if use_norms:
