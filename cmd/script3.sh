@@ -25,7 +25,8 @@
 # CUDA_VISIBLE_DEVICES=3 nice -n 19 python3 src/train.py exp_name=s2n_l1_e0_adam train_mode=train data.train_file=v1/p2_train_kk.csv data.val_file=v1/p2_val_kk.csv data.test_file=v1/p2_test.csv loss.type=softmax opt.type=adam opt.lr=0.001 batch_size=64 epochs=100 workers=4 seed=42
 # CUDA_VISIBLE_DEVICES=3 nice -n 19 python3 src/train.py exp_name=g1n_l1_e0_adam_2 train_mode=train data.train_file=v1/p1_train_kk.csv data.val_file=v1/p1_val_kk.csv data.test_file=v1/p1_test.csv loss.type=BGsoftmax opt.type=adam opt.lr=0.001 batch_size=64 epochs=100 workers=4 seed=42
 
-CUDA_VISIBLE_DEVICES=3 nice -n 19 python3 src/train.py exp_name=b2n_l1_e0_adam train_mode=train data.train_file=v1/p2_train.csv data.val_file=v1/p2_val.csv data.test_file=v1/p2_test.csv loss.type=BGsoftmax opt.type=adam opt.lr=0.001 batch_size=64 epochs=120 workers=4 seed=42
+# CUDA_VISIBLE_DEVICES=3 nice -n 19 python3 src/train.py exp_name=b2n_l1_e0_adam train_mode=train data.train_file=v1/p2_train.csv data.val_file=v1/p2_val.csv data.test_file=v1/p2_test.csv loss.type=BGsoftmax opt.type=adam opt.lr=0.001 batch_size=64 epochs=120 workers=4 seed=42
+CUDA_VISIBLE_DEVICES=3 nice -n 19 python3 src/train_kn.py exp_name=s3n_l1_e0_adam train_mode=train data.train_file=v1/p3_train_kk.csv data.val_file=v1/p3_val_kk.csv data.test_file=v1/p3_test.csv loss.type=softmax opt.type=adam opt.lr=0.001 batch_size=64 epochs=120 workers=4 seed=42
 
 
 

@@ -3,28 +3,28 @@ import torch.functional as f
 from sklearn import metrics
 
 
-def confidence(scores, target, negative_offset=0.1):
+def confidence(scores, target, offset=0.1):
     """
     Returns model's confidence. Taken from https://github.com/Vastlab/vast/tree/main/vast
     Args:
         scores: Softmax scores of the samples.
         target: Target label of the samples.
-        negative_offset: Confidence offset value, typically 1/number_of_classes.
+        offset: Confidence offset value, typically 1/number_of_classes.
     Returns: Confidence value.
     """
     with torch.no_grad():
         known = target >= 0
-        len_known = sum(known).item()   # Total known samples in data
-        len_unk = sum(~known).item()    # Total unknown samples in data
+        len_kn = sum(known).item()   # Total known samples in data
+        len_un = sum(~known).item()    # Total unknown samples in data
         conf_kn = 0.0
-        conf_unk = 0.0
-        if len_known:
+        conf_un = 0.0
+        if len_kn:
             # Average confidence known samples
-            conf_kn = torch.sum(scores[known, target[known]]) / len_known
-        if len_unk:
+            conf_kn = torch.sum(scores[known, target[known]]).item() / len_kn
+        if len_un:
             # Average confidence unknown samples
-            conf_unk = torch.sum(1.0 + negative_offset - torch.max(scores[~known], dim=1)[0]) / len_unk
-    return conf_kn.item(), len_known, conf_unk.item(), len_unk
+            conf_un = torch.sum(1.0 + offset - torch.max(scores[~known], dim=1)[0]).item() / len_un
+    return conf_kn, len_kn, conf_un, len_un
 
 
 def predict_objectosphere(logits, features, threshold):

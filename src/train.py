@@ -298,8 +298,10 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
         # kn_len, un_len: number of known or unknown samples.
         kn_c, kn_len, un_c, un_len = metrics.confidence(all_scores, all_t, min_unk_score)
         trackers['auc'].update(auc, data_len)
-        trackers['conf_kn'].update(kn_c, kn_len)
-        trackers['conf_unk'].update(un_c, un_len)
+        if kn_len:
+            trackers['conf_kn'].update(kn_c, kn_len)
+        if un_len:
+            trackers['conf_unk'].update(un_c, un_len)
 
 
 def save_eval_arrays(model, loader, device, batch_size, file_name):

@@ -120,11 +120,16 @@ if __name__ == '__main__':
     # create device
     device = torch.device('cuda')
 
-    if args.loss in ['softmax', 'BGsoftmax']:
-        n_classes = val_ds.label_cnt
-        print('is softmax', n_classes)
+    # if args.loss in ['softmax', 'BGsoftmax']:
+    #     n_classes = val_ds.label_cnt
+    #     print('is softmax', n_classes)
+    # else:
+    #     n_classes = val_ds.label_cnt - 1
+
+    if val_ds.has_unknowns():
+        n_classes = val_ds.label_cnt - 1  # number of classes - 1 when training with unknowns
     else:
-        n_classes = val_ds.label_cnt - 1
+        n_classes = val_ds.label_cnt
 
     # create model
     model = ResNet50(fc_layer_dim=n_classes, out_features=n_classes, logit_bias=False)

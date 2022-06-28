@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.ticker import MaxNLocator  # FixedLocator
 from matplotlib.lines import Line2D
+import matplotlib.font_manager as font_manager
 import seaborn as sns
 from matplotlib.ticker import LogLocator, NullFormatter, FormatStrFormatter
 from matplotlib import colors
@@ -121,7 +122,7 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     elif scale == 'semilog':
         ax.set_xscale('log')
         ax.set_ylim(0, 1)
-        # ax.set_xlim(1e-10, 1)
+        ax.set_xlim(1e-4, 1)
     else:
         ax.set_ylim(0, 1)
         ax.set_xlim(None, None)
@@ -159,6 +160,9 @@ def plot_oscr(arrays, scale='linear', title=None, ax_label_font=13,
                               scale=scale)
 
     # plot parameters:
+    font_m = font_manager.FontProperties(family="Times New Roman",
+                                   # weight='bold',
+                                   style='normal', ) # size=16)
     if title is not None:
         ax.set_title(title, fontsize=ax_label_font)
     ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
