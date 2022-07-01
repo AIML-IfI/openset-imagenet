@@ -5,7 +5,7 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.ticker import MaxNLocator  # FixedLocator
+from matplotlib.ticker import MaxNLocator, FixedLocator
 from matplotlib.lines import Line2D
 import matplotlib.font_manager as font_manager
 import seaborn as sns
@@ -109,24 +109,29 @@ def calculate_oscr(gt, scores, points=1000, unk_label=-1):
 
 def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     linestyle = 'solid'
-    linewidth = 1.5
+    linewidth = 1
     if baseline:  # The baseline is always the first array
         linestyle = 'dashed'
-    ax.plot(x, y, label=exp_name, linestyle=linestyle, color=color, linewidth=linewidth)
+    ax.plot(x, y, label=exp_name, linestyle=linestyle,
+            color=color, linewidth=linewidth, marker='2', markersize=2)
 
     if scale == 'log':
         ax.set_xscale('log')
         ax.set_yscale('log')
         ax.set_ylim(None, 1)
-        ax.set_xlim(None, 1)
+        ax.set_xlim(0.7 * 1e-4, None)
+        ax.yaxis.set_major_locator(LogLocator(base=10, numticks=12))
+        ax.xaxis.set_major_locator(LogLocator(base=10, numticks=9))
     elif scale == 'semilog':
         ax.set_xscale('log')
         ax.set_ylim(0, 1)
-        ax.set_xlim(1e-4, 1)
+        ax.set_xlim(0.7 * 1e-4, None)
+        ax.yaxis.set_major_locator(MaxNLocator(5, prune='lower'))
+        ax.xaxis.set_major_locator(LogLocator(base=10, numticks=9))
     else:
         ax.set_ylim(0, 1)
-        ax.set_xlim(None, None)
-        ax.xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+        # ax.set_xlim(None, None)
+        # ax.xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
         ax.yaxis.set_major_locator(MaxNLocator(5, prune='lower'))
     # if marker is not None:
     #         ax.plot(fpr, ccr, label=exp_name, linestyle=linestyle, color=colors[idx],
@@ -159,10 +164,6 @@ def plot_oscr(arrays, scale='linear', title=None, ax_label_font=13,
                               color=colors[idx], baseline=False,
                               scale=scale)
 
-    # plot parameters:
-    font_m = font_manager.FontProperties(family="Times New Roman",
-                                   # weight='bold',
-                                   style='normal', ) # size=16)
     if title is not None:
         ax.set_title(title, fontsize=ax_label_font)
     ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
@@ -252,13 +253,10 @@ def plot_histogram_val_test(arrays_val, arrays_test, metric, bins, figsize, titl
     fig.set_constrained_layout_pads(w_pad=4 / 72, h_pad=4 / 72, hspace=0.1, wspace=0.05)
 
 
-def plot_single_histogram(arrays, size=(6, 4), value='score', ax=None, bins=200,
-                          legend=True, ax_label_font=13, log=True, linewidth=1, fig_title=None,
+def plot_single_histogram(arrays, value='score', ax=None, bins=200,
+                          legend=True, ax_label_font=13, scale='linear', linewidth=1,
                           label1='Knowns', label2='Unknowns', normalized=True, split='test',
                           xlim=None, linestyle='solid'):
-    if ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=size, constrained_layout=True)
-        fig.suptitle(fig_title, fontsize=ax_label_font)
 
     score = arrays['scores']
     gt = arrays['gt'].astype(np.int64)
@@ -292,13 +290,13 @@ def plot_single_histogram(arrays, size=(6, 4), value='score', ax=None, bins=200,
     # bins_mean = centers = 0.5*(bins[1:]+ bins[:-1])
     hist_kn, _ = np.histogram(kn_metric, bins)
     hist_unk, _ = np.histogram(unk_metric, bins)
-    if normalized and not log:
+    if normalized:
         # max_val = max(np.max(hist_kn), np.max(hist_unk))
         hist_kn = hist_kn / np.max(hist_kn)
         hist_unk = hist_unk / np.max(hist_unk)
         # hist_kn = hist_kn/max_val
         # hist_unk = hist_unk/max_val
-        ax.yaxis.set_major_locator(ticker.FixedLocator([0.5, 1]))
+        # ax.yaxis.set_major_locator(FixedLocator([0.5, 1]))
     # Custom plot
     if xlim is not None:
         ax.set_xlim(xlim)
@@ -311,8 +309,10 @@ def plot_single_histogram(arrays, size=(6, 4), value='score', ax=None, bins=200,
     ax.stairs(hist_unk, bins, fill=False, color=fill_unk, edgecolor=edge_unk,
               linewidth=linewidth, linestyle=linestyle)
 
-    if log:
-        # ax.set_yscale('log')
+    if scale == 'semilog':
+        ax.set_xscale('log')
+    if scale == 'log':
+        ax.set_yscale('log')
         ax.set_xscale('log')
         y_major = LogLocator(base=10.0, numticks=5)
         ax.yaxis.set_major_locator(y_major)
