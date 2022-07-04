@@ -7,9 +7,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.ticker import MaxNLocator, FixedLocator
 from matplotlib.lines import Line2D
-import matplotlib.font_manager as font_manager
 import seaborn as sns
-from matplotlib.ticker import LogLocator, NullFormatter, FormatStrFormatter
+from matplotlib.ticker import LogLocator, NullFormatter
 from matplotlib import colors
 
 
@@ -113,7 +112,7 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     if baseline:  # The baseline is always the first array
         linestyle = 'dashed'
     ax.plot(x, y, label=exp_name, linestyle=linestyle,
-            color=color, linewidth=linewidth, marker='2', markersize=2)
+            color=color, linewidth=linewidth, marker='2', markersize=1)
 
     if scale == 'log':
         ax.set_xscale('log')
@@ -131,7 +130,6 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     else:
         ax.set_ylim(0, 1)
         # ax.set_xlim(None, None)
-        # ax.xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
         ax.yaxis.set_major_locator(MaxNLocator(5, prune='lower'))
     # if marker is not None:
     #         ax.plot(fpr, ccr, label=exp_name, linestyle=linestyle, color=colors[idx],
@@ -149,7 +147,7 @@ def plot_oscr(arrays, scale='linear', title=None, ax_label_font=13,
         #     feat = arrays[exp_name]['features']
         #     norms = np.linalg.norm(feat, axis=1)
 
-        loss = 'BGsoftmax' if exp_name.startswith('$B') else None  # Is a BGsoftmax experiment
+        loss = 'BGsoftmax' if exp_name.startswith('B') else None  # Is a BGsoftmax experiment
         gt = arrays[exp_name]['gt']
         scores = arrays[exp_name]['scores']
 

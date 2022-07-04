@@ -34,6 +34,20 @@ from robustness.tools.imagenet_helpers import common_superclass_wnid
 # get WordNet IDs of mixed_13 classes
 mixed13_superclass_wnid = common_superclass_wnid('mixed_13')
 
+# 'mixed_13': ['n02084071', #dog,
+#             'n01503061', #bird (52)
+#             'n02159955', #insect (27)
+#             'n03405725', #furniture (21)
+#             'n02512053', #fish (16),
+#             'n02484322', #monkey (13)
+#             'n02958343', #car (10)
+#             'n02120997', #feline (8),
+#             'n04490091', #truck (7)
+#             'n13134947', #fruit (7)
+#             'n12992868', #fungus (7)
+#             'n02858304', #boat (6)  
+#             'n03082979', #computer(6)
+
 # initialize empty dictionary for known classes
 known_knowns_p3 = {}
 # initialize empty dictionary for known unknown classes
