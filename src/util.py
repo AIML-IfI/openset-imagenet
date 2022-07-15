@@ -1,11 +1,12 @@
 """Set of utility functions to produce evaluation figures and histograms."""
 
+from enum import unique
 from pathlib import Path
 from collections import defaultdict
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.ticker import MaxNLocator, FixedLocator
+from matplotlib import ticker
 from matplotlib.lines import Line2D
 import seaborn as sns
 from matplotlib.ticker import LogLocator, NullFormatter
@@ -78,31 +79,30 @@ def get_ccr_at_fpr(target, scores, tau, split='test'):
         return tau, corr_rate, known_unk_rate
 
 
-def calculate_oscr(gt, scores, points=1000, unk_label=-1):
+def calculate_oscr(gt, scores, unk_label=-1):
     # Change the unk_label to calculate for kn_unknown or unk_unknown
-    knowns = gt > 0
-    unknowns = gt == unk_label
+    gt = gt.astype(int)
+    kn = gt >= 0
+    unk = gt == unk_label
 
     # Get total number of samples of each type
-    total_kn = np.sum(knowns)         # Cardinality of known samples
-    total_unk = np.sum(unknowns)    # Cardinality of unknoen samples
+    total_kn = np.sum(kn)
+    total_unk = np.sum(unk)
 
     ccr, fpr = [], []
-
-    # Get the biggest score between unknowns
-    max_unk_score = np.max(scores[unknowns])
-
-    # Predictions
     pred_class = np.argmax(scores, axis=1)
-    pred_score = np.max(scores, axis=1)
+    max_score = np.max(scores, axis=1)
+    target_score = scores[kn][range(kn.sum()), gt[kn]]
 
-    for tau in np.linspace(start=0, stop=max_unk_score, num=points):
-        # correct classification rate
-        val = np.count_nonzero(knowns * (pred_class == gt) * (pred_score >= tau)) / total_kn
+    for tau in np.unique(target_score)[:-1]:
+        val = ((pred_class[kn] == gt[kn]) & (target_score > tau)).sum() / total_kn
         ccr.append(val)
-        # false positive rate
-        val = np.count_nonzero(unknowns * (pred_score >= tau)) / total_unk
+
+        val = (unk & (max_score > tau)).sum() / total_unk
         fpr.append(val)
+
+    ccr = np.array(ccr)
+    fpr = np.array(fpr)
     return ccr, fpr
 
 
@@ -111,34 +111,38 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     linewidth = 1
     if baseline:  # The baseline is always the first array
         linestyle = 'dashed'
-    ax.plot(x, y, label=exp_name, linestyle=linestyle,
-            color=color, linewidth=linewidth, marker='2', markersize=1)
-
+    # ax.scatter(x, y, label=exp_name, s=1)
     if scale == 'log':
         ax.set_xscale('log')
         ax.set_yscale('log')
-        ax.set_ylim(None, 1)
-        ax.set_xlim(0.7 * 1e-4, None)
-        ax.yaxis.set_major_locator(LogLocator(base=10, numticks=12))
-        ax.xaxis.set_major_locator(LogLocator(base=10, numticks=9))
+        ax.set_ylim(0.09, 1)
+        ax.set_xlim(8 * 1e-5, 1.4)
+        ax.xaxis.set_major_locator(LogLocator(base=10, numticks=100))
+        locmin = ticker.LogLocator(base=10.0, subs=np.linspace(0, 1, 10, False), numticks=12)
+        ax.xaxis.set_minor_locator(locmin)
+        ax.xaxis.set_minor_formatter(ticker.NullFormatter())
     elif scale == 'semilog':
         ax.set_xscale('log')
-        ax.set_ylim(0, 1)
-        ax.set_xlim(0.7 * 1e-4, None)
-        ax.yaxis.set_major_locator(MaxNLocator(5, prune='lower'))
-        ax.xaxis.set_major_locator(LogLocator(base=10, numticks=9))
+        ax.set_ylim(0.0, 0.8)
+        ax.set_xlim(8 * 1e-5, 1.4)
+        ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))# MaxNLocator(7))  #, prune='lower'))
+        ax.xaxis.set_major_locator(LogLocator(base=10, numticks=10))
+        locmin = ticker.LogLocator(base=10.0, subs=np.linspace(0, 1, 10, False), numticks=12)
+        ax.xaxis.set_minor_locator(locmin)
+        ax.xaxis.set_minor_formatter(ticker.NullFormatter())
     else:
-        ax.set_ylim(0, 1)
+        ax.set_ylim(0.0, 0.8)
         # ax.set_xlim(None, None)
-        ax.yaxis.set_major_locator(MaxNLocator(5, prune='lower'))
-    # if marker is not None:
-    #         ax.plot(fpr, ccr, label=exp_name, linestyle=linestyle, color=colors[idx],
-    #                 linewidth=linewidth, marker=marker, markevery=marker_step)
+        ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))  # , prune='lower'))
+    z = x != 0
+    x = x[z]
+    y = y[z]
+    ax.plot(x, y, label=exp_name, linestyle=linestyle, color=color, linewidth=linewidth) # marker='2', markersize=1)
     return ax
 
 
 def plot_oscr(arrays, scale='linear', title=None, ax_label_font=13,
-              ax=None, legend_pos="lower right", unk_label=-1, points=1000):
+              ax=None, legend_pos="lower right", unk_label=-1,):
 
     colors = sns.color_palette("deep")
     for idx, exp_name in enumerate(arrays):
@@ -154,8 +158,7 @@ def plot_oscr(arrays, scale='linear', title=None, ax_label_font=13,
         if loss is not None:    # If the loss is BGsoftmax then removes the background class
             scores = scores[:, :-1]
 
-        ccr, fpr = calculate_oscr(gt, scores, points, unk_label)
-
+        ccr, fpr = calculate_oscr(gt, scores, unk_label)
         # linestyle = 'solid' if base_line and idx == 0 else 'dashed'
         ax = plot_single_oscr(x=fpr, y=ccr,
                               ax=ax, exp_name=exp_name,
@@ -193,7 +196,7 @@ def plot_oscr_knvsunk(arrays, rows=1, cols=1, figsize=(10, 6)):
         ax[idx].plot(sfpra, sccr, label=sname + '_suu', linestyle=':', linewidth=1)
         ax[idx].set_xlim(0, 1)
         ax[idx].set_ylim(0, 1)
-        ax[idx].xaxis.set_major_locator(MaxNLocator(prune='lower'))
+        ax[idx].xaxis.set_major_locator(ticker.MaxNLocator(prune='lower'))
         ax[idx].tick_params(bottom=True, top=True, left=True, right=True, direction='in')
         ax[idx].tick_params(labelbottom=True, labeltop=False, labelleft=True, labelright=False,
                             labelsize=10)
