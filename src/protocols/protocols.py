@@ -1,44 +1,77 @@
 # OpenSet protocols V2
 from robustness.tools.imagenet_helpers import ImageNetHierarchy, common_superclass_wnid
 from pathlib import Path
-import pandas as pd
 from sklearn.model_selection import train_test_split
 import csv
 
 
 class OpenSetProtocol:
 
-    def __init__(self, im_root_dir, info_path, out_dir, protocol=1):
+    def __init__(self, im_root_dir, info_path, protocol=1):
         self.im_root_dir = Path(im_root_dir)
         self.info_path = Path(info_path)
-        self.out_dir = Path(out_dir)
         self.hierarchy = ImageNetHierarchy(im_root_dir, info_path)
         self.protocol = protocol
         self.data = {}
+
         if self.protocol == 1:
-            self.kn_superclasses = ['n02084071']
-            self.kn_unk_superclasses = ['n02118333', 'n02115335', 'n02114100', 'n02120997',
-                                        'n02131653', 'n02441326', 'n02370806', 'n02469914']
-            self.unk_unk_superclasses = ['n07555863', 'n03791235', 'n03183080']
+            self.kn_superclasses = ['n02084071']  # dog
+            self.neg_superclasses = ['n02118333',  # fox
+                                     'n02115335',  # wild_dog
+                                     'n02114100',  # wolf
+                                     'n02120997',  # feline
+                                     'n02131653',  # bear
+                                     'n02441326',  # musteline
+                                     'n02370806',  # ungulate
+                                     'n02469914',  # primate
+                                     ]
+            self.unk_superclasses = ['n07555863',  # food
+                                     'n03791235',  # motor_vehicle
+                                     'n03183080',  # device
+                                     ]
 
         elif self.protocol == 2:
-            self.kn_superclasses = ['n02087122']
-            self.kn_unk_superclasses = self.kn_superclasses  # Split the subclasses
-            self.unk_unk_superclasses = ['n02085374', 'n02118333', 'n02115335', 'n02114100',
-                                         'n02120997', 'n02131653', 'n02441326', 'n02370806']
+            self.kn_superclasses = ['n02087122']  # hunting_dog
+            self.neg_superclasses = self.kn_superclasses  # Split the subclasses
+            self.unk_superclasses = ['n02085374',  # toy_dog
+                                     'n02118333',  # fox
+                                     'n02115335',  # wild_dog
+                                     'n02114100',  # wolf
+                                     'n02120997',  # feline
+                                     'n02131653',  # bear
+                                     'n02441326',  # musteline mammal
+                                     'n02370806',  # ungulate
+                                     ]
         elif self.protocol == 3:
             self.kn_superclasses = common_superclass_wnid('mixed_13')
+            # 'mixed_13': ['n02084071',  # dog,
+            #              'n01503061',  # bird (52)
+            #              'n02159955',  # insect (27)
+            #              'n03405725',  # furniture (21)
+            #              'n02512053',  # fish (16),
+            #              'n02484322',  # monkey (13)
+            #              'n02958343',  # car (10)
+            #              'n02120997',  # feline (8),
+            #              'n04490091',  # truck (7)
+            #              'n13134947',  # fruit (7)
+            #              'n12992868',  # fungus (7)
+            #              'n02858304',  # boat (6)
+            #              'n03082979',  # computer(6)
             # Defined inside the mixed_13 classes
-            self.kn_unk_superclasses = None
+            self.neg_superclasses = None
             # Selected classes + subclasses of mixed_13, selected in update_classes()
-            self.unk_unk_superclasses = ['n01661091', 'n03051540', 'n02370806', 'n07707451', 'n02686568']
-
+            self.unk_superclasses = ['n01661091',  # reptile
+                                     'n03051540',  # clothing
+                                     'n02370806',  # ungulate
+                                     'n07707451',  # vegetable
+                                     'n02686568',  # aircraft
+                                     ]
         else:
             raise Exception("Choose between [1,2,3]")
 
         self.kn_classes = []
-        self.kn_unk_classes = []
-        self.unk_unk_classes = []
+        self.neg_classes = []
+        self.unk_classes = []
         self.label_map = None
 
     def get_descendants_wid(self, node_wn_id, in_imagenet=True):
@@ -69,16 +102,19 @@ class OpenSetProtocol:
         return images, parents
 
     def update_classes(self):
-        """Updates the lists of kn_classes, kn_unk_classes and unk_unk_classes by querying all descendants
-        of the selected superclasses. Then the classes are filtered according to protocol design. Removes
-        possible duplicates inside the lists and creates a dictionary to map class-label."""
+        """
+        Updates the lists of kn_classes, neg_classes and unk_classes by querying all
+        descendants of the selected superclasses. Then the classes are filtered according to
+        protocol design. Removes possible duplicates inside the lists and creates a dictionary
+        to map class-label.
+        """
         if self.protocol == 1:
             for super_c_id in self.kn_superclasses:
                 self.kn_classes.extend(self.get_descendants_wid(super_c_id))
-            for super_c_id in self.kn_unk_superclasses:
-                self.kn_unk_classes.extend(self.get_descendants_wid(super_c_id))
-            for super_c_id in self.unk_unk_superclasses:
-                self.unk_unk_classes.extend(self.get_descendants_wid(super_c_id))
+            for super_c_id in self.neg_superclasses:
+                self.neg_classes.extend(self.get_descendants_wid(super_c_id))
+            for super_c_id in self.unk_superclasses:
+                self.unk_classes.extend(self.get_descendants_wid(super_c_id))
 
         elif self.protocol == 2:
             all_descendants = []
@@ -87,9 +123,9 @@ class OpenSetProtocol:
             # TODO: current selection is half-half for kn and kn_unk, should it be random?
             middle = len(all_descendants) // 2
             self.kn_classes.extend(all_descendants[:middle])
-            self.kn_unk_classes.extend(all_descendants[middle:])
-            for super_c_id in self.unk_unk_superclasses:
-                self.unk_unk_classes.extend(self.get_descendants_wid(super_c_id))
+            self.neg_classes.extend(all_descendants[middle:])
+            for super_c_id in self.unk_superclasses:
+                self.unk_classes.extend(self.get_descendants_wid(super_c_id))
 
         elif self.protocol == 3:
             for super_c_id in self.kn_superclasses:
@@ -98,16 +134,16 @@ class OpenSetProtocol:
                     if idx % 2 == 0:
                         self.kn_classes.append(class_)
                     elif idx % 2 != 0 and idx % 3 == 0:
-                        self.unk_unk_classes.append(class_)
+                        self.unk_classes.append(class_)
                     elif idx % 2 != 0 and idx % 3 != 0:
-                        self.kn_unk_classes.append(class_)
-            for super_c_id in self.unk_unk_superclasses:
-                self.unk_unk_classes.extend(self.get_descendants_wid(super_c_id))
+                        self.neg_classes.append(class_)
+            for super_c_id in self.unk_superclasses:
+                self.unk_classes.extend(self.get_descendants_wid(super_c_id))
 
-        # Remove duplicates
+        # Remove duplicates and sort the classes
         self.kn_classes = sorted(list(set(self.kn_classes)))
-        self.kn_unk_classes = sorted(list(set(self.kn_unk_classes)))
-        self.unk_unk_classes = sorted(list(set(self.unk_unk_classes)))
+        self.neg_classes = sorted(list(set(self.neg_classes)))
+        self.unk_classes = sorted(list(set(self.unk_classes)))
         # Dictionary with class label
         self.label_map = dict(zip(self.kn_classes, range(len(self.kn_classes))))
 
@@ -138,7 +174,7 @@ class OpenSetProtocol:
         """
         if class_name in self.kn_classes:
             return self.label_map[class_name]
-        elif class_name in self.kn_unk_classes:
+        elif class_name in self.neg_classes:
             return -1
         else:
             return -2
@@ -149,6 +185,14 @@ class OpenSetProtocol:
             writer = csv.writer(f)
             writer.writerows(data)
 
+    def save_datasets_to_csv(self, out_dir):
+        out_dir = Path(out_dir)
+        # write csv files
+        self.save_csv(self.out_dir / ('p' + str(self.protocol) + '_train.csv'), self.data['train'])
+        self.save_csv(self.out_dir / ('p' + str(self.protocol) + '_val.csv'), self.data['val'])
+        self.save_csv(self.out_dir / ('p' + str(self.protocol) + '_test.csv'), self.data['test'])
+        print("Protocol files saved in " + str(out_dir))
+
     def create_dataset(self, random_state=42):
         """ Create the datasets of the protocol
         Args:
@@ -156,91 +200,29 @@ class OpenSetProtocol:
         """
         self.update_classes()
 
-        # train - val protocol 1
-        x, y = self.query_images([*self.kn_classes, *self.kn_unk_classes], imagenet_split='train')
-        x_train, x_val, y_train, y_val = train_test_split(x, y, train_size=0.8, stratify=y, random_state=random_state)
+        # query all images
+        x, y = self.query_images(
+            [*self.kn_classes, *self.neg_classes],
+            imagenet_split='train'
+        )
+        
+        # create train and validation splits
+        x_train, x_val, y_train, y_val = train_test_split(
+            x, y,
+            train_size=0.8,
+            stratify=y,
+            random_state=random_state
+        )
+
         y_train = [self.get_label(c) for c in y_train]
         y_val = [self.get_label(c) for c in y_val]
         self.data['train'] = list(zip(x_train, y_train))
         self.data['val'] = list(zip(x_val, y_val))
 
         # test data
-        x, y = self.query_images([*self.kn_classes, *self.kn_unk_classes, *self.unk_unk_classes], imagenet_split='val')
+        x, y = self.query_images(
+            [*self.kn_classes, *self.neg_classes, *self.unk_classes],
+            imagenet_split='val'
+        )
         y = [self.get_label(p) for p in y]
         self.data['test'] = list(zip(x, y))
-
-        # write csv files
-        self.save_csv(self.out_dir / ('p'+str(self.protocol)+'_train.csv'), self.data['train'])
-        self.save_csv(self.out_dir / ('p'+str(self.protocol)+'_val.csv'), self.data['val'])
-        self.save_csv(self.out_dir / ('p'+str(self.protocol)+'_test.csv'), self.data['test'])
-
-# ----------------------------------------------------------------------------------------------
-
-in_info_path = Path(r"/local/scratch/datasets/ImageNet/ILSVRC2012/robustness")
-root_dir = Path(r"/local/scratch/datasets/ImageNet/ILSVRC2012")
-out_dir = Path(r"/local/scratch/palechor/openset-imagenet/data")
-
-
-def print_data(prt):
-    print('---------------Protocol '+str(prt.protocol) + ' ------------')
-    print('kn classes:', len(prt.kn_classes))
-    print('kn_unk classes:', len(prt.kn_unk_classes))
-    print('unk_unk classes:', len(prt.unk_unk_classes))
-    print('train size:', len(prt.data['train']))
-    print('val size:', len(prt.data['val']))
-    print('test size:', len(prt.data['test']))
-
-
-prt = OpenSetProtocol(im_root_dir=root_dir, info_path=in_info_path, out_dir=out_dir, protocol=1)
-prt.create_dataset(random_state=4242)
-print_data(prt)
-prt = OpenSetProtocol(im_root_dir=root_dir, info_path=in_info_path, out_dir=out_dir, protocol=2)
-prt.create_dataset(random_state=4242)
-print_data(prt)
-prt = OpenSetProtocol(im_root_dir=root_dir, info_path=in_info_path, out_dir=out_dir, protocol=3)
-prt.create_dataset(random_state=4242)
-print_data(prt)
-
-''
-# def check_datasets(d1, d2):
-#     d1 = d1.copy()
-#     d2 = d2.copy()
-#     print('d1 shape:', d1.shape)
-#     print('d2 shape:', d2.shape)
-#
-#     d1['folder'] = d1.path.apply(lambda x: x.split('/')[1])
-#     d1 = (d1.groupby('folder').count())
-#     d1 = d1.drop(columns=['path'])
-#     d2['folder'] = d2.path.apply(lambda x: x.split('/')[1])
-#     d2 = (d2.groupby('folder').count())
-#     d2 = d2.drop(columns=['path'])
-#     print('same classes:', set(d1.index) == set(d2.index))
-#
-#     df = pd.merge(d1, d2, on='folder', how='outer')
-#     print(df[abs(df.label_x - df.label_y) == 1])
-#
-#
-# in_info_path = Path(r"/local/scratch/datasets/ImageNet/ILSVRC2012/robustness")
-# root_dir = Path(r"/local/scratch/datasets/ImageNet/ILSVRC2012")
-#
-# prt = OpenSetProtocol(im_root_dir=root_dir, info_path=in_info_path, protocol=3)
-# prt.create_dataset(random_state=1232)
-# prt.write_csv(path='data/p3_train.csv', data=prt.data['train'])
-# df1 = pd.DataFrame(prt.data['train'], columns=['path', 'label'])
-# df2 = pd.read_csv('data/p3_2/train_p3.csv', names=['path', 'label'])
-# print('========== Protocol - Train ==========')
-# check_datasets(df1, df2)
-
-# prt.create_dataset(random_state=1232)
-# df1 = pd.DataFrame(prt.data['val'], columns=['path', 'label'])
-# df2 = pd.read_csv('data/p3_2/val_p3.csv', names=['path', 'label'])
-# print('========== Protocol - Val ==========')
-# check_datasets(df1, df2)
-#
-# prt.create_dataset(random_state=1232)
-# df1 = pd.DataFrame(prt.data['test'], columns=['path', 'label'])
-# df2 = pd.read_csv('data/p3_2/test_p3.csv', names=['path', 'label'])
-# print('========== Protocol - Test ==========')
-# check_datasets(df1, df2)
-
-
