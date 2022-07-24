@@ -153,6 +153,17 @@ def filter_correct(logits, target, threshold):
 
 
 def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
+    """ Main training loop.
+    Args:
+        model (toch.model): Model
+        data_loader (torch.DataLoader): Dataloader
+        optimizer (torch.Optimizer): Optimizer
+        device (cuda): cuda id
+        loss_fn: Loss function
+        trackers: Dictionary of trackers
+        cfg: General configuration structure
+    """
+    
     # Reset dictionary of training metrics
     for t in trackers.values():
         t.reset()
