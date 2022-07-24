@@ -24,12 +24,10 @@ class ResNet50(nn.Module):
         self.logits = nn.Linear(in_features=fc_layer_dim, out_features=out_features, bias=logit_bias)
 
     def forward(self, x, features=True):
-        """
-        Forward pass
+        """ Forward pass
         Args:
             x: Input samples
             features: True if return deep features of the samples.
-
         Returns: Logits and deep features of the samples.
         """
         d_features = self.net(x)

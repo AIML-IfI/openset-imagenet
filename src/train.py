@@ -181,7 +181,7 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
         elif cfg.loss.type in ['BGsoftmax', 'entropic', 'softmax']:
             j = loss_fn(logits, t)
             trackers['j'].update(j.item(), batch_len)
-
+        # Backward pass
         j.backward()
 
         if cfg.adv.who == 'no_adv':  # If training without adversarial samples
@@ -209,13 +209,23 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
             if num_adv_samples > 0:
                 x_corr = x[correct_idx]
                 if cfg.adv.who == 'gaussian':
-                    x_adv, t_adv = adversary.add_gaussian_noise(x_corr, loc=0, std=cfg.adv.std, device=device)
+                    x_adv, t_adv = adversary.add_gaussian_noise(x=x_corr,
+                                                                loc=0,
+                                                                std=cfg.adv.std,
+                                                                device=device
+                                                                )
                 elif cfg.adv.who == 'random':
-                    x_adv, t_adv = adversary.add_random_noise(x_corr, epsilon=cfg.adv.epsilon, device=device)
+                    x_adv, t_adv = adversary.add_random_noise(x=x_corr,
+                                                              epsilon=cfg.adv.epsilon,
+                                                              device=device
+                                                              )
                 elif cfg.adv.who == 'fgsm':
                     x_corr_grad = x.grad[correct_idx]
-                    x_adv, t_adv = adversary.fgsm_attack(x_corr, epsilon=cfg.adv.epsilon, grad=x_corr_grad,
-                                                         device=device)
+                    x_adv, t_adv = adversary.fgsm_attack(x=x_corr,
+                                                         epsilon=cfg.adv.epsilon,
+                                                         grad=x_corr_grad,
+                                                         device=device
+                                                         )
                 else:
                     print('skipping adversarials')
                     continue
@@ -228,9 +238,6 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
                 elif cfg.loss.type == 'entropic':
                     j_a = loss_fn(logits, t_adv)
                 trackers['j_adv'].update(j_a.item(), num_adv_samples)
-                # elif cfg.loss.type == 'softmax':
-                #     j = loss_fn(logits, t_adv)
-                #     trackers['j_sadv'].update(j.item(), num_adv_samples)
                 j_a.backward()
             optimizer.step()
 

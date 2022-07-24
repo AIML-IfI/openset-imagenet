@@ -3,3 +3,4 @@
 /.vscode/*
 /src/__pycache__/*
 /analysis/fig/*
+src/protocols/__pycache__/*

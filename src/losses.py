@@ -16,9 +16,9 @@ class ObjectoLoss:
     def __call__(self, features, logits, targets, alpha, sample_weights=None):
         objecto_term = self.objecto(features, targets, sample_weights, reduction='sum')
         entropic_term = self.entropic(logits, targets, sample_weights)
-        loss = entropic_term + alpha*objecto_term
+        loss = entropic_term + alpha * objecto_term
         self.entropic_value = entropic_term.item()
-        self.objecto_value = alpha*objecto_term .item()
+        self.objecto_value = alpha * objecto_term .item()
         return loss
 
 
@@ -57,16 +57,6 @@ class EntropicOpensetLoss:
         if sample_weights is not None:
             sample_loss = sample_loss * sample_weights
         return sample_loss
-
-
-class SoftmaxGarbageLoss:
-    def __init__():
-        pass
-    # TODO: Needs to calculate target weights
-
-
-    def __call__(self):
-        pass
 
 
 # Taken from https://github.com/pytorch/examples/tree/master/imagenet

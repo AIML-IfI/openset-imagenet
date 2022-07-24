@@ -4,8 +4,7 @@ from sklearn import metrics
 
 
 def confidence(scores, target, offset=0.1):
-    """
-    Returns model's confidence. Taken from https://github.com/Vastlab/vast/tree/main/vast
+    """ Returns model's confidence. Taken from https://github.com/Vastlab/vast/tree/main/vast
     Args:
         scores: Softmax scores of the samples.
         target: Target label of the samples.
@@ -28,8 +27,7 @@ def confidence(scores, target, offset=0.1):
 
 
 def predict_objectosphere(logits, features, threshold):
-    """
-    Predicts the class and softmax score of the input samples. Uses the product norms*score to threshold
+    """ Predicts the class and softmax score of the input samples. Uses the product norms*score to threshold
     the unknown samples.
     Args:
         logits: Predicted logit values.
@@ -65,14 +63,11 @@ def auc_score_binary(t_true, pred_score, unk_class=-1):
 
 
 def auc_score_multiclass(t_true, pred_score):
-    """
-    Calculates the multiclass AUC; Calculates the AUC of each class against the rest.
+    """ Calculates the multiclass AUC; Calculates the AUC of each class against the rest.
     Args:
         t_true: Target label of the samples.
         pred_score: Predicted softmax score of the samples.
-
     Returns: Multiclass AUC, measures the mean AUC including known and known-unknowns.
-
     """
     if torch.is_tensor(t_true):
         t_true = t_true.cpu().detach().numpy()

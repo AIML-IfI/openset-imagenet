@@ -43,7 +43,8 @@ def get_args():
 
 def load_checkpoint(filepath, model_):
     """Loads a checkpoint in CPU. If the model was saved using DistributedDataParallel, removes the
-    word 'module' from the state_dictionary keys to load it in a single device"""
+    word 'module' from the state_dictionary keys to load it in a single device.
+    """
     checkpoint = torch.load(filepath, map_location='cpu')
     key = list(checkpoint['model_state_dict'].keys())[0]
     if key[:6] == 'module':

@@ -34,7 +34,7 @@ class ImagenetDataset(Dataset):
         it applies the defined transformations to the image. Images are converted to RGB format.
         Args:
             index (Int): Image index
-        Returns: Tuple of tensors (image, label)
+        Returns: Tuple of tensors (image, label).
         """
         if torch.is_tensor(index):
             # print("index is tensor")
@@ -54,7 +54,8 @@ class ImagenetDataset(Dataset):
 
     def replace_unknown_label(self):
         """Replaces unknown label (-1) to the biggest label + 1. This is required if the loss
-        function is BGsoftmax. Updates the array of unique labels."""
+        function is BGsoftmax. Updates the array of unique labels.
+        """
         biggest_label = self.unique_classes[-1]
         self.dataset[1].replace(-1, biggest_label + 1, inplace=True)
         self.unique_classes[self.unique_classes == -1] = biggest_label + 1

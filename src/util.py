@@ -1,6 +1,5 @@
 """Set of utility functions to produce evaluation figures and histograms."""
 
-from enum import unique
 from pathlib import Path
 from collections import defaultdict
 import matplotlib.pyplot as plt
@@ -125,7 +124,7 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
         ax.set_xscale('log')
         ax.set_ylim(0.0, 0.8)
         ax.set_xlim(8 * 1e-5, 1.4)
-        ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))# MaxNLocator(7))  #, prune='lower'))
+        ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))  # MaxNLocator(7))  #, prune='lower'))
         ax.xaxis.set_major_locator(LogLocator(base=10, numticks=10))
         locmin = ticker.LogLocator(base=10.0, subs=np.linspace(0, 1, 10, False), numticks=12)
         ax.xaxis.set_minor_locator(locmin)
@@ -137,7 +136,11 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     z = x != 0
     x = x[z]
     y = y[z]
-    ax.plot(x, y, label=exp_name, linestyle=linestyle, color=color, linewidth=linewidth) # marker='2', markersize=1)
+    ax.plot(x=x, y=y,
+            label=exp_name,
+            linestyle=linestyle,
+            color=color,
+            linewidth=linewidth)  # marker='2', markersize=1
     return ax
 
 
