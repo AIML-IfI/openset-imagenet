@@ -7,14 +7,13 @@ import numpy as np
 import pandas as pd
 from matplotlib import ticker
 from matplotlib.lines import Line2D
-import seaborn as sns
 from matplotlib.ticker import LogLocator, NullFormatter
 from matplotlib import colors
+import matplotlib.cm as cm
 
 
 def dataset_info(protocol_data_dir):
-    """
-    Produces data frame with basic info about the dataset. The data dir must contain train.csv,
+    """ Produces data frame with basic info about the dataset. The data dir must contain train.csv,
     validation.csv and test.csv, that list the samples for each split.
     Args:
         protocol_data_dir: Data directory.
@@ -45,6 +44,12 @@ def dataset_info(protocol_data_dir):
 
 
 def read_array_list(file_names):
+    """ Loads npz saved arrays
+    Args:
+        file_names: dictionary or list of arrays
+    Returns:
+        Dictionary of arrays containing logits, scores, target label and features norms.
+    """
     list_paths = file_names
     arrays = defaultdict(dict)
 
@@ -59,26 +64,15 @@ def read_array_list(file_names):
     return arrays
 
 
-def get_ccr_at_fpr(target, scores, tau, split='test'):
-    # predictions
-    pred_class = np.argmax(scores, axis=1)
-    pred_score = scores[np.arange(len(scores)), pred_class]
-    max_score = np.amax(scores, axis=1)
-
-    # Total number of samples in the splits.
-    dc = np.sum(target > -1)  # Dc = Cardinality of known samples
-    db = np.sum(target == -1)  # Db = Cardinality of known unknown samples
-    da = np.sum(target == -2)  # Da = Cardinality of unknown-unknown samples
-    corr_rate = np.count_nonzero((target >= 0) * (pred_class == target) * (pred_score >= tau)) / dc
-    if split == 'test':
-        unk_unk_rate = np.count_nonzero((target == -2) * (max_score >= tau)) / da
-        return tau, corr_rate, unk_unk_rate
-    else:
-        known_unk_rate = np.count_nonzero((target == -1) * (max_score >= tau)) / db
-        return tau, corr_rate, known_unk_rate
-
-
 def calculate_oscr(gt, scores, unk_label=-1):
+    """ Calculates the OSCR values, iterating over the score of the target class of every sample,
+    produces a pair (ccr, fpr) for every score.
+    Args:
+        gt (np.array): Integer array of target class labels.
+        scores (np.array): Float array of dim [N_samples, N_classes] or [N_samples, N_classes+1]
+        unk_label (int): Label to calculate the fpr, either negatives or unknowns. Defaults to -1 (negatives)
+    Returns: Two lists first one for ccr, second for fpr.
+    """
     # Change the unk_label to calculate for kn_unknown or unk_unknown
     gt = gt.astype(int)
     kn = gt >= 0
@@ -110,20 +104,23 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     linewidth = 1
     if baseline:  # The baseline is always the first array
         linestyle = 'dashed'
-    # ax.scatter(x, y, label=exp_name, s=1)
     if scale == 'log':
         ax.set_xscale('log')
         ax.set_yscale('log')
+        # Manual limits
         ax.set_ylim(0.09, 1)
         ax.set_xlim(8 * 1e-5, 1.4)
+        # Manual ticks
         ax.xaxis.set_major_locator(LogLocator(base=10, numticks=100))
         locmin = ticker.LogLocator(base=10.0, subs=np.linspace(0, 1, 10, False), numticks=12)
         ax.xaxis.set_minor_locator(locmin)
         ax.xaxis.set_minor_formatter(ticker.NullFormatter())
     elif scale == 'semilog':
         ax.set_xscale('log')
+        # Manual limits
         ax.set_ylim(0.0, 0.8)
         ax.set_xlim(8 * 1e-5, 1.4)
+        # Manual ticks
         ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))  # MaxNLocator(7))  #, prune='lower'))
         ax.xaxis.set_major_locator(LogLocator(base=10, numticks=10))
         locmin = ticker.LogLocator(base=10.0, subs=np.linspace(0, 1, 10, False), numticks=12)
@@ -133,10 +130,12 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
         ax.set_ylim(0.0, 0.8)
         # ax.set_xlim(None, None)
         ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))  # , prune='lower'))
-    z = x != 0
-    x = x[z]
-    y = y[z]
-    ax.plot(x=x, y=y,
+    # Remove fpr=0 since it cause errors with different ccrs and logscale.
+    non_zero = x != 0
+    x = x[non_zero]
+    y = y[non_zero]
+    ax.plot(x,
+            y,
             label=exp_name,
             linestyle=linestyle,
             color=color,
@@ -145,76 +144,86 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
 
 
 def plot_oscr(arrays, scale='linear', title=None, ax_label_font=13,
-              ax=None, legend_pos="lower right", unk_label=-1,):
+              ax=None, unk_label=-1,):
 
-    colors = sns.color_palette("deep")
+    color_palette = cm.get_cmap('tab10', 10).colors
+
     for idx, exp_name in enumerate(arrays):
-        # norms = None
-        # if use_norms:
-        #     feat = arrays[exp_name]['features']
-        #     norms = np.linalg.norm(feat, axis=1)
-
         loss = 'BGsoftmax' if exp_name.startswith('B') else None  # Is a BGsoftmax experiment
         gt = arrays[exp_name]['gt']
         scores = arrays[exp_name]['scores']
 
-        if loss is not None:    # If the loss is BGsoftmax then removes the background class
+        if loss == 'BGsoftmax':    # If the loss is BGsoftmax then removes the background class
             scores = scores[:, :-1]
 
         ccr, fpr = calculate_oscr(gt, scores, unk_label)
-        # linestyle = 'solid' if base_line and idx == 0 else 'dashed'
         ax = plot_single_oscr(x=fpr, y=ccr,
                               ax=ax, exp_name=exp_name,
-                              color=colors[idx], baseline=False,
+                              color=color_palette[idx], baseline=False,
                               scale=scale)
-
     if title is not None:
         ax.set_title(title, fontsize=ax_label_font)
     ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
     ax.tick_params(labelbottom=True, labeltop=False, labelleft=True,
                    labelright=False, labelsize=ax_label_font)
-    if legend_pos == 'box':
-        ax.legend(frameon=False, bbox_to_anchor=(0, 0), loc="upper right", ncol=1,
-                  fontsize=ax_label_font - 1)
-    elif legend_pos != 'no':
-        ax.legend(frameon=False, loc=legend_pos, fontsize=ax_label_font - 1)
     return ax
 
 
-def plot_oscr_knvsunk(arrays, rows=1, cols=1, figsize=(10, 6)):
-    fig, ax = plt.subplots(rows, cols, figsize=figsize, sharex=True, sharey=True,
-                           constrained_layout=True)
-    if rows * cols > 1:
-        ax = np.ravel(ax)
-    for idx, exp_name in enumerate(sorted(arrays, reverse=True)):
-        ccr, fpr_db, fpr_da, _ = calculate_oscr(
-            gt=arrays[exp_name]['gt'],
-            scores=arrays[exp_name]['scores'],
-            testing=True
-        )
-        if idx == 0:
-            sccr, sfpra, sname = ccr, fpr_da, exp_name
-        ax[idx].plot(fpr_db, ccr, label=exp_name + '_ku', linewidth=1)
-        ax[idx].plot(fpr_da, ccr, label=exp_name + '_uu', linewidth=1)
-        ax[idx].plot(sfpra, sccr, label=sname + '_suu', linestyle=':', linewidth=1)
-        ax[idx].set_xlim(0, 1)
-        ax[idx].set_ylim(0, 1)
-        ax[idx].xaxis.set_major_locator(ticker.MaxNLocator(prune='lower'))
-        ax[idx].tick_params(bottom=True, top=True, left=True, right=True, direction='in')
-        ax[idx].tick_params(labelbottom=True, labeltop=False, labelleft=True, labelright=False,
-                            labelsize=10)
-        ax[idx].legend(frameon=False, loc="lower right", fontsize=11)
-    fig.suptitle('OSCR: Known-unknowns and Unknown-unknowns ', fontsize=14)
-    fig.supxlabel("False positivie rate", fontsize=13)
-    fig.supylabel("Correct classification rate", fontsize=13)
-    plt.show()
+def get_histogram(array, unk_label=-1,
+                  metric='score',
+                  bins=100,
+                  drop_bg=False,
+                  log_space=False,
+                  geomspace_limits=(1, 1e2)):
+    """Calculates histograms of scores or norms"""
+    score = array['scores']
+    if drop_bg:  # if background class drop the last column of scores
+        score = score[:, :-1]
+    gt = array['gt'].astype(np.int64)
+    features = array['features']
+    norms = np.linalg.norm(features, axis=1)
+    kn = (gt >= 0)
+    unk = gt == unk_label
+    if metric == 'score':
+        kn_metric = score[kn, gt[kn]]
+        unk_metric = np.amax(score[unk], axis=1)
+    elif metric == 'norm':
+        kn_metric = norms[kn]
+        unk_metric = norms[unk]
+    if log_space:
+        lower, upper = geomspace_limits
+        bins = np.geomspace(lower, upper, num=bins)
+    kn_hist, kn_edges = np.histogram(kn_metric, bins=bins)
+    unk_hist, unk_edges = np.histogram(unk_metric, bins=bins)
+    return kn_hist, kn_edges, unk_hist, unk_edges
 
-
-def transform_to_test(files_dict):
-    test_paths = dict()
-    for name, path in files_dict.items():
-        test_paths[name] = Path(str(path).replace('_val_', '_test_'))
-    return test_paths
+# def plot_oscr_knvsunk(arrays, rows=1, cols=1, figsize=(10, 6)):
+#     fig, ax = plt.subplots(rows, cols, figsize=figsize, sharex=True, sharey=True,
+#                            constrained_layout=True)
+#     if rows * cols > 1:
+#         ax = np.ravel(ax)
+#     for idx, exp_name in enumerate(sorted(arrays, reverse=True)):
+#         ccr, fpr_db, fpr_da, _ = calculate_oscr(
+#             gt=arrays[exp_name]['gt'],
+#             scores=arrays[exp_name]['scores'],
+#             testing=True
+#         )
+#         if idx == 0:
+#             sccr, sfpra, sname = ccr, fpr_da, exp_name
+#         ax[idx].plot(fpr_db, ccr, label=exp_name + '_ku', linewidth=1)
+#         ax[idx].plot(fpr_da, ccr, label=exp_name + '_uu', linewidth=1)
+#         ax[idx].plot(sfpra, sccr, label=sname + '_suu', linestyle=':', linewidth=1)
+#         ax[idx].set_xlim(0, 1)
+#         ax[idx].set_ylim(0, 1)
+#         ax[idx].xaxis.set_major_locator(ticker.MaxNLocator(prune='lower'))
+#         ax[idx].tick_params(bottom=True, top=True, left=True, right=True, direction='in')
+#         ax[idx].tick_params(labelbottom=True, labeltop=False, labelleft=True, labelright=False,
+#                             labelsize=10)
+#         ax[idx].legend(frameon=False, loc="lower right", fontsize=11)
+#     fig.suptitle('OSCR: Known-unknowns and Unknown-unknowns ', fontsize=14)
+#     fig.supxlabel("False positivie rate", fontsize=13)
+#     fig.supylabel("Correct classification rate", fontsize=13)
+#     plt.show()
 
 
 def get_best_arrays(files_dict):
@@ -228,110 +237,110 @@ def get_best_arrays(files_dict):
     return best_paths
 
 
-def plot_histogram_val_test(arrays_val, arrays_test, metric, bins, figsize, title, linewidth=1,
-                            split='test', font=14, sharex=True, sharey=True, log=True,
-                            normalized=True):
-    # Create general figure
-    nrows = len(arrays_val)
-    fig, ax = plt.subplots(nrows, 2, figsize=figsize, constrained_layout=True, sharex=sharex,
-                           sharey=sharey)
-    fig.suptitle(title, fontsize=font + 1)
-    # Iterate over experiments
-    for idx, (exp_name, array) in enumerate(arrays_val.items()):
-        plot_single_histogram(exp_name, array, size=(6, 4), value=metric, ax=ax[idx, 0], bins=bins,
-                              legend=False, ax_label_font=font, log=log, linewidth=linewidth,
-                              label1='Knowns', label2='Unknowns', normalized=normalized,
-                              split='val')
+# def plot_histogram_val_test(arrays_val, arrays_test, metric, bins, figsize, title, linewidth=1,
+#                             split='test', font=14, sharex=True, sharey=True, log=True,
+#                             normalized=True):
+#     # Create general figure
+#     nrows = len(arrays_val)
+#     fig, ax = plt.subplots(nrows, 2, figsize=figsize, constrained_layout=True, sharex=sharex,
+#                            sharey=sharey)
+#     fig.suptitle(title, fontsize=font + 1)
+#     # Iterate over experiments
+#     for idx, (exp_name, array) in enumerate(arrays_val.items()):
+#         plot_single_histogram(exp_name, array, size=(6, 4), value=metric, ax=ax[idx, 0], bins=bins,
+#                               legend=False, ax_label_font=font, log=log, linewidth=linewidth,
+#                               label1='Knowns', label2='Unknowns', normalized=normalized,
+#                               split='val')
 
-    for idx, (exp_name, array) in enumerate(arrays_test.items()):
-        plot_single_histogram(exp_name, array, size=(6, 4), value=metric, ax=ax[idx, 1], bins=bins,
-                              legend=False, ax_label_font=font, log=log, linewidth=linewidth,
-                              label1='Knowns', label2='Unknowns', normalized=normalized,
-                              split='test')
+#     for idx, (exp_name, array) in enumerate(arrays_test.items()):
+#         plot_single_histogram(exp_name, array, size=(6, 4), value=metric, ax=ax[idx, 1], bins=bins,
+#                               legend=False, ax_label_font=font, log=log, linewidth=linewidth,
+#                               label1='Knowns', label2='Unknowns', normalized=normalized,
+#                               split='test')
 
-    # set custom legend
-    handles = [Line2D([], [], c='tab:blue'), Line2D([], [], c='indianred')]
-    labels = ['KKs', 'UUs']
-    fig.legend(frameon=False, bbox_to_anchor=(0.5, -0.1), loc='lower center',
-               fontsize=font, handles=handles, labels=labels, ncol=2)
-    fig.set_constrained_layout_pads(w_pad=4 / 72, h_pad=4 / 72, hspace=0.1, wspace=0.05)
+#     # set custom legend
+#     handles = [Line2D([], [], c='tab:blue'), Line2D([], [], c='indianred')]
+#     labels = ['KKs', 'UUs']
+#     fig.legend(frameon=False, bbox_to_anchor=(0.5, -0.1), loc='lower center',
+#                fontsize=font, handles=handles, labels=labels, ncol=2)
+#     fig.set_constrained_layout_pads(w_pad=4 / 72, h_pad=4 / 72, hspace=0.1, wspace=0.05)
 
 
-def plot_single_histogram(arrays, value='score', ax=None, bins=200,
-                          legend=True, ax_label_font=13, scale='linear', linewidth=1,
-                          label1='Knowns', label2='Unknowns', normalized=True, split='test',
-                          xlim=None, linestyle='solid'):
+# def plot_single_histogram(arrays, value='score', ax=None, bins=200,
+#                           legend=True, ax_label_font=13, scale='linear', linewidth=1,
+#                           label1='Knowns', label2='Unknowns', normalized=True, split='test',
+#                           xlim=None, linestyle='solid'):
 
-    score = arrays['scores']
-    gt = arrays['gt'].astype(np.int64)
-    feat = arrays['features']
-    norms = np.linalg.norm(feat, axis=1)
-    kn = (gt >= 0)
-    unk = ~kn
-    if split == 'test':
-        unk = gt == -2
+#     score = arrays['scores']
+#     gt = arrays['gt'].astype(np.int64)
+#     feat = arrays['features']
+#     norms = np.linalg.norm(feat, axis=1)
+#     kn = (gt >= 0)
+#     unk = ~kn
+#     if split == 'test':
+#         unk = gt == -2
 
-    kn_scores = score[kn, gt[kn]]
-    unk_scores = np.amax(score[unk], axis=1)
-    kn_norms = norms[kn]
-    unk_norms = norms[unk]
+#     kn_scores = score[kn, gt[kn]]
+#     unk_scores = np.amax(score[unk], axis=1)
+#     kn_norms = norms[kn]
+#     unk_norms = norms[unk]
 
-    kn_metric = kn_scores
-    unk_metric = unk_scores
+#     kn_metric = kn_scores
+#     unk_metric = unk_scores
 
-    if value == 'product':
-        kn_metric = kn_scores * kn_norms
-        unk_metric = unk_scores * unk_norms
-    elif value == 'norm':
-        kn_metric = kn_norms
-        unk_metric = unk_norms
-    print('kn metrics', np.mean(kn_metric))
-    print('un metrics', np.mean(unk_metric))
+#     if value == 'product':
+#         kn_metric = kn_scores * kn_norms
+#         unk_metric = unk_scores * unk_norms
+#     elif value == 'norm':
+#         kn_metric = kn_norms
+#         unk_metric = unk_norms
+#     print('kn metrics', np.mean(kn_metric))
+#     print('un metrics', np.mean(unk_metric))
 
-    # Create histograms
-    max_metric = max(np.max(kn_metric), np.max(unk_metric))
-    bins = np.linspace(0, max_metric, bins)
-    # bins_mean = centers = 0.5*(bins[1:]+ bins[:-1])
-    hist_kn, _ = np.histogram(kn_metric, bins)
-    hist_unk, _ = np.histogram(unk_metric, bins)
-    if normalized:
-        # max_val = max(np.max(hist_kn), np.max(hist_unk))
-        hist_kn = hist_kn / np.max(hist_kn)
-        hist_unk = hist_unk / np.max(hist_unk)
-        # hist_kn = hist_kn/max_val
-        # hist_unk = hist_unk/max_val
-        # ax.yaxis.set_major_locator(FixedLocator([0.5, 1]))
-    # Custom plot
-    if xlim is not None:
-        ax.set_xlim(xlim)
-    edge_unk = colors.to_rgba('indianred', 1)
-    fill_unk = colors.to_rgba('firebrick', 0.02)
-    edge_kn = colors.to_rgba('tab:blue', 1)
-    fill_kn = colors.to_rgba('tab:blue', 0.02)
-    ax.stairs(hist_kn, bins, fill=False, color=fill_kn, edgecolor=edge_kn,
-              linewidth=linewidth, linestyle=linestyle)
-    ax.stairs(hist_unk, bins, fill=False, color=fill_unk, edgecolor=edge_unk,
-              linewidth=linewidth, linestyle=linestyle)
+#     # Create histograms
+#     max_metric = max(np.max(kn_metric), np.max(unk_metric))
+#     bins = np.linspace(0, max_metric, bins)
+#     # bins_mean = centers = 0.5*(bins[1:]+ bins[:-1])
+#     hist_kn, _ = np.histogram(kn_metric, bins)
+#     hist_unk, _ = np.histogram(unk_metric, bins)
+#     if normalized:
+#         # max_val = max(np.max(hist_kn), np.max(hist_unk))
+#         hist_kn = hist_kn / np.max(hist_kn)
+#         hist_unk = hist_unk / np.max(hist_unk)
+#         # hist_kn = hist_kn/max_val
+#         # hist_unk = hist_unk/max_val
+#         # ax.yaxis.set_major_locator(FixedLocator([0.5, 1]))
+#     # Custom plot
+#     if xlim is not None:
+#         ax.set_xlim(xlim)
+#     edge_unk = colors.to_rgba('indianred', 1)
+#     fill_unk = colors.to_rgba('firebrick', 0.02)
+#     edge_kn = colors.to_rgba('tab:blue', 1)
+#     fill_kn = colors.to_rgba('tab:blue', 0.02)
+#     ax.stairs(hist_kn, bins, fill=False, color=fill_kn, edgecolor=edge_kn,
+#               linewidth=linewidth, linestyle=linestyle)
+#     ax.stairs(hist_unk, bins, fill=False, color=fill_unk, edgecolor=edge_unk,
+#               linewidth=linewidth, linestyle=linestyle)
 
-    if scale == 'semilog':
-        ax.set_xscale('log')
-    if scale == 'log':
-        ax.set_yscale('log')
-        ax.set_xscale('log')
-        y_major = LogLocator(base=10.0, numticks=5)
-        ax.yaxis.set_major_locator(y_major)
-        y_minor = LogLocator(base=10.0, subs=np.arange(1.0, 10.0) * 0.1, numticks=5)
-        ax.yaxis.set_minor_locator(y_minor)
-        ax.yaxis.set_minor_formatter(NullFormatter())
+#     if scale == 'semilog':
+#         ax.set_xscale('log')
+#     if scale == 'log':
+#         ax.set_yscale('log')
+#         ax.set_xscale('log')
+#         y_major = LogLocator(base=10.0, numticks=5)
+#         ax.yaxis.set_major_locator(y_major)
+#         y_minor = LogLocator(base=10.0, subs=np.arange(1.0, 10.0) * 0.1, numticks=5)
+#         ax.yaxis.set_minor_locator(y_minor)
+#         ax.yaxis.set_minor_formatter(NullFormatter())
 
-    ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
-    ax.tick_params(which='both', labelbottom=True, labeltop=False, labelleft=True,
-                   labelright=False, labelsize=ax_label_font)
+#     ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
+#     ax.tick_params(which='both', labelbottom=True, labeltop=False, labelleft=True,
+#                    labelright=False, labelsize=ax_label_font)
 
-    # ax.set_title(exp_name, fontsize=ax_label_font)
-    # legend
-    if legend:
-        handles = [Line2D([], [], c=edge_kn), Line2D([], [], c=edge_unk)]
-        labels = [label1, label2]
-        ax.legend(frameon=False, bbox_to_anchor=(0.5, -0.15), loc='lower center', fontsize=12,
-                  handles=handles, labels=labels, ncol=2)
+#     # ax.set_title(exp_name, fontsize=ax_label_font)
+#     # legend
+#     if legend:
+#         handles = [Line2D([], [], c=edge_kn), Line2D([], [], c=edge_unk)]
+#         labels = [label1, label2]
+#         ax.legend(frameon=False, bbox_to_anchor=(0.5, -0.15), loc='lower center', fontsize=12,
+#                   handles=handles, labels=labels, ncol=2)
