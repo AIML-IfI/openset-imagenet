@@ -1,39 +1,49 @@
 import torch
-import torch.functional as f
+import torch.nn.functional as f  # TODO: it was torch.functional as f
 from sklearn import metrics
+import numpy as np
 
 
-def confidence(scores, target, offset=0.1):
-    """ Returns model's confidence. Taken from https://github.com/Vastlab/vast/tree/main/vast
+def confidence(scores, target_labels, offset=0.1):
+    """ Returns model's confidence, Taken from https://github.com/Vastlab/vast/tree/main/vast.
+
     Args:
         scores: Softmax scores of the samples.
-        target: Target label of the samples.
+        target_labels: Target label of the samples.
         offset: Confidence offset value, typically 1/number_of_classes.
-    Returns: Confidence value.
+
+    Returns:
+        kn_conf: Confidence of known samples.
+        kn_count: Count of known samples.
+        neg_conf: Confidence of negative samples.
+        neg_count Count of negative samples.
     """
     with torch.no_grad():
-        known = target >= 0
-        len_kn = sum(known).item()   # Total known samples in data
-        len_un = sum(~known).item()    # Total unknown samples in data
-        conf_kn = 0.0
-        conf_un = 0.0
-        if len_kn:
+        known = target_labels >= 0
+        kn_count = sum(known).item()    # Total known samples in data
+        neg_count = sum(~known).item()  # Total negative samples in data
+        kn_conf = 0.0
+        neg_conf = 0.0
+        if kn_count:
             # Average confidence known samples
-            conf_kn = torch.sum(scores[known, target[known]]).item() / len_kn
-        if len_un:
+            kn_conf = torch.sum(scores[known, target_labels[known]]).item() / kn_count
+        if neg_count:
             # Average confidence unknown samples
-            conf_un = torch.sum(1.0 + offset - torch.max(scores[~known], dim=1)[0]).item() / len_un
-    return conf_kn, len_kn, conf_un, len_un
+            neg_conf = torch.sum(1.0 + offset - torch.max(scores[~known], dim=1)[0]).item() / neg_count
+    return kn_conf, kn_count, neg_conf, neg_count
 
 
 def predict_objectosphere(logits, features, threshold):
     """ Predicts the class and softmax score of the input samples. Uses the product norms*score to threshold
     the unknown samples.
+
     Args:
-        logits: Predicted logit values.
+        logits: Logit values of the samples.
         features: Deep features of the samples.
         threshold: Threshold value to discard unknowns.
-    Returns: Predicted classes
+
+    Returns:
+        Tensor of predicted classes and predicted score.
     """
     scores = f.softmax(logits, dim=1)
     pred_score, pred_class = torch.max(scores, dim=1)
@@ -43,34 +53,44 @@ def predict_objectosphere(logits, features, threshold):
     return torch.stack((pred_class, pred_score), dim=1)
 
 
-def auc_score_binary(t_true, pred_score, unk_class=-1):
-    """ Calculates the binary AUC; known samples labeled as 1, known-unknown labeled as -1.
+def auc_score_binary(target_labels, pred_scores, unk_class=-1):
+    """ Calculates the binary AUC, all known samples labeled as 1. All negatives labeled as -1
+    (or -2 if measuring unknowns).
+
     Args:
-        t_true: Target label of the samples.
-        pred_score: Maximum predicted scores for a known class.
+        target_labels: Target label of the samples.
+        pred_scores: Softmax scores dim = [n_samples, n_classes] or [n_samples, n_classes-1] if BGSoftmax
         unk_class: Class reserved for unknown samples.
-    Returns: Binary AUC, measures the separation between known and unknown samples.
+
+    Returns:
+        Binary AUC between known and unknown samples.
     """
-    if torch.is_tensor(t_true):
-        t_true = t_true.cpu().detach().numpy()
-    if torch.is_tensor(pred_score):
-        pred_score = pred_score.cpu().detach().numpy()
+    if torch.is_tensor(target_labels):
+        target_labels = target_labels.cpu().detach().numpy()
+    if torch.is_tensor(pred_scores):
+        pred_scores = pred_scores.cpu().detach().numpy()
 
-    kn = t_true != unk_class
-    t_true[kn] = 1
-    t_true[~kn] = -1
-    return metrics.roc_auc_score(t_true, pred_score)
+    max_scores = np.max(pred_scores, axis=1)
+
+    kn = target_labels != unk_class
+    target_labels[kn] = 1
+    target_labels[~kn] = -1
+    return metrics.roc_auc_score(target_labels, max_scores)
 
 
-def auc_score_multiclass(t_true, pred_score):
-    """ Calculates the multiclass AUC; Calculates the AUC of each class against the rest.
+def auc_score_multiclass(target_labels, pred_scores):
+    """ Calculates the multiclass AUC, each class against the rest.
+
     Args:
-        t_true: Target label of the samples.
-        pred_score: Predicted softmax score of the samples.
-    Returns: Multiclass AUC, measures the mean AUC including known and known-unknowns.
+        target_labels: Target label of the samples.
+        pred_scores: Predicted softmax scores of the samples.
+
+    Returns:
+        Multiclass AUC: measures the mean AUC including known and negatives.
     """
-    if torch.is_tensor(t_true):
-        t_true = t_true.cpu().detach().numpy()
-    if torch.is_tensor(pred_score):
-        pred_score = pred_score.cpu().detach().numpy()
-    return metrics.roc_auc_score(t_true, pred_score, multi_class='ovr')
+    if torch.is_tensor(target_labels):
+        target_labels = target_labels.cpu().detach().numpy()
+    if torch.is_tensor(pred_scores):
+        pred_scores = pred_scores.cpu().detach().numpy()
+
+    return metrics.roc_auc_score(target_labels, pred_scores, multi_class='ovr')

@@ -1,5 +1,5 @@
-"""Independent code for inference in testing dataset. The functions are included
-and executed in the train.py script."""
+""" Independent code for inference in testing dataset. The functions are included and executed
+in the train.py script."""
 import torch
 import argparse
 import numpy as np
@@ -9,7 +9,7 @@ from dataset import ImagenetDataset
 from torch.utils.data import DataLoader
 from model import ResNet50
 from tqdm import tqdm
-from collections import OrderedDict
+from train import load_checkpoint
 
 
 def get_args():
@@ -39,26 +39,6 @@ def get_args():
     parser.add_argument('-t', '--threshold', default=0.5, type=float, metavar='',
                         help='Threshold tau: if max(S_c(X))>tau: class=c o/w x is unknown')
     return parser.parse_args()
-
-
-def load_checkpoint(filepath, model_):
-    """Loads a checkpoint in CPU. If the model was saved using DistributedDataParallel, removes the
-    word 'module' from the state_dictionary keys to load it in a single device.
-    """
-    checkpoint = torch.load(filepath, map_location='cpu')
-    key = list(checkpoint['model_state_dict'].keys())[0]
-    if key[:6] == 'module':
-        new_state_dict = OrderedDict()
-        for k, v in checkpoint['model_state_dict'].items():
-            key = k[7:]  # remove 'module'
-            new_state_dict[key] = v
-        model_.load_state_dict(new_state_dict)
-    else:
-        model_.load_state_dict(checkpoint['model_state_dict'])
-    print('epoch', checkpoint['epoch'])
-    del checkpoint
-    print('Loaded model from: {}'.format(filepath))
-    return model_
 
 
 def get_arrays(model_, loader, device_, args_):
@@ -108,8 +88,8 @@ if __name__ == '__main__':
 
     # Info on console
     print('\n========== Data ==========')
-    print('val_ds len:{}, labels:{}'.format(len(val_ds), val_ds.label_cnt))
-    print('test_ds len:{}, labels:{}'.format(len(test_ds), test_ds.label_cnt))
+    print('val_ds len:{}, labels:{}'.format(len(val_ds), val_ds.label_count))
+    print('test_ds len:{}, labels:{}'.format(len(test_ds), test_ds.label_count))
 
     # create directory if not exists
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -127,10 +107,10 @@ if __name__ == '__main__':
     # else:
     #     n_classes = val_ds.label_cnt - 1
 
-    if val_ds.has_unknowns():
-        n_classes = val_ds.label_cnt - 1  # number of classes - 1 when training with unknowns
+    if val_ds.has_negatives():
+        n_classes = val_ds.label_count - 1  # number of classes - 1 when training with unknowns
     else:
-        n_classes = val_ds.label_cnt
+        n_classes = val_ds.label_count
 
     # create model
     model = ResNet50(fc_layer_dim=n_classes, out_features=n_classes, logit_bias=False)
@@ -142,24 +122,13 @@ if __name__ == '__main__':
     # extracting arrays for validation
     gt, logits, features, scores = get_arrays(model, val_loader, device, args)
     file_path = args.output_dir / '{}_val_arr.npz'.format(args.exp_name)
-    np.savez(
-        file_path,
-        gt=gt,
-        logits=logits,
-        features=features,
-        scores=scores
-    )
+    np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
     print('ground truth, logits, deep features, softmax scores saved in: {}'.format(file_path))
 
     # extracting arrays for test
     print('Test data:')
     gt, logits, features, scores = get_arrays(model, test_loader, device, args)
     file_path = args.output_dir / '{}_test_arr.npz'.format(args.exp_name)
-    np.savez(
-        file_path,
-        gt=gt,
-        logits=logits,
-        features=features,
-        scores=scores
+    np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores
     )
     print('ground truth, logits, deep features, softmax scores saved in: {}'.format(file_path))

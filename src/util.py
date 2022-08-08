@@ -13,8 +13,8 @@ import matplotlib.cm as cm
 
 
 def dataset_info(protocol_data_dir):
-    """ Produces data frame with basic info about the dataset. The data dir must contain train.csv,
-    validation.csv and test.csv, that list the samples for each split.
+    """ Produces data frame with basic info about the dataset. The data dir must contain train.csv, validation.csv
+    and test.csv, that list the samples for each split.
     Args:
         protocol_data_dir: Data directory.
     Returns:
@@ -38,8 +38,8 @@ def dataset_info(protocol_data_dir):
         row = (split, num_classes, size, kn_size, kn_ratio, kn_unk_size,
                kn_unk_ratio, unk_unk_size, unk_unk_ratio)
         data.append(row)
-    info = pd.DataFrame(data, columns=['split', 'classes', 'size', 'kn size', 'kn (%)',
-                                       'kn_unk size', 'kn_unk (%)', 'unk_unk size', 'unk_unk (%)'])
+    info = pd.DataFrame(data, columns=['split', 'classes', 'size', 'kn size', 'kn (%)', 'kn_unk size',
+                                       'kn_unk (%)', 'unk_unk size', 'unk_unk (%)'])
     return info
 
 

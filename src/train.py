@@ -6,7 +6,7 @@ import numpy as np
 from pathlib import Path
 from collections import OrderedDict, defaultdict
 import metrics
-import adversary
+from adversary import add_random_noise, add_gaussian_noise, fgsm_attack, decay_epsilon
 from dataset import ImagenetDataset
 from model import ResNet50
 from losses import AverageMeter, EarlyStopping, EntropicLoss, ObjectoLoss
@@ -27,14 +27,13 @@ from omegaconf import DictConfig
 from os import getcwd
 
 # Global objects:
-# Best validation score
-best_score = 0.0
-# Initial training epoch
-start_epoch = 0
+best_score = 0.0    # Best validation score
+start_epoch = 0     # Initial training epoch
 
 
 def set_seeds(seed):
     """ Sets the seed for different sources of randomness
+
     Args:
         seed (int): Integer
     """
@@ -46,9 +45,10 @@ def set_seeds(seed):
 
 
 def save_checkpoint(f_name, model, epoch, opt, best_score_, scheduler=None):
-    """ Saves a training checkpoint
+    """ Saves a training checkpoint.
+
     Args:
-        f_name: File name
+        f_name: File name.
         model: Pytorch model.
         epoch: Current epoch.
         opt: Current optimizer.
@@ -57,43 +57,43 @@ def save_checkpoint(f_name, model, epoch, opt, best_score_, scheduler=None):
     """
     # If model is DistributedDataParallel extracts the module.
     state = model.module.state_dict() if isinstance(model, DistributedDataParallel) else model.state_dict()
-    data = {
-        'epoch': epoch + 1,
-        'model_state_dict': state,
-        'opt_state_dict': opt.state_dict(),
-        'best_score': best_score_
-    }
+
+    data = {'epoch': epoch + 1,
+            'model_state_dict': state,
+            'opt_state_dict': opt.state_dict(),
+            'best_score': best_score_}
     if scheduler is not None:
         data['scheduler'] = scheduler.state_dict()
     torch.save(data, f_name)
 
 
 def check_config(cfg):
-    """ Placeholder to perform hyperparameter checks.
+    """ Placeholder to perform parameter checks.
+
     Args:
         cfg: Configuration file
     """
     if (cfg.adv.who != 'no_adv') and cfg.dist.distributed:
-        m = "Can't train adversarial samples in distributed mode. Try single GPU"
+        m = "Test Message"
         raise Exception(m)
 
 
-def load_checkpoint(model, ckpt_path, opt=None, device='cpu', scheduler=None):
-    """ Loads a checkpoint in CPU by default. If the model was saved using DistributedDataParallel, removes
-    the word 'module' from the state_dictionary keys to load it in a single device.
-    If fine-tuning model then optimizer should be none to start from clean optimizer parameters.
+def load_checkpoint(model, checkpoint, opt=None, device='cpu', scheduler=None):
+    """ Loads a checkpoint, if the model was saved using DistributedDataParallel, removes the word
+    'module' from the state_dictionary keys to load it in a single device. If fine-tuning model then
+    optimizer should be none to start from clean optimizer parameters.
 
     Args:
-        model (torch nn.module): Requires a model to load the state dictionary
-        ckpt_path (Path): File path
+        model (torch nn.module): Requires a model to load the state dictionary.
+        checkpoint (Path): File path.
         opt (torch optimizer, optional): An optimiser to load the state dictionary. Defaults to None.
-        device (str, optional): Device to load the checkpoint, can be loaded directly to a cuda device.
-        Defaults to 'cpu'.
+        device (str, optional): Device to load the checkpoint. Defaults to 'cpu'.
         scheduler (torch lr_scheduler, optional): Learning rate scheduler. Defaults to None.
     """
     global best_score
     global start_epoch
-    file_path = Path(ckpt_path)
+
+    file_path = Path(checkpoint)
     if file_path.is_file:  # First check if file exists
         checkpoint = torch.load(file_path, map_location=device)
         key = list(checkpoint['model_state_dict'].keys())[0]
@@ -106,15 +106,16 @@ def load_checkpoint(model, ckpt_path, opt=None, device='cpu', scheduler=None):
             model.load_state_dict(new_state_dict)
         else:
             model.load_state_dict(checkpoint['model_state_dict'])
-        # Load optimizer state
-        if opt is not None:
+
+        if opt is not None:  # Load optimizer state
             opt.load_state_dict(checkpoint['opt_state_dict'])
+
         start_epoch = checkpoint['epoch']
-        # Load scheduler state
-        if scheduler is not None:
+
+        if scheduler is not None:  # Load scheduler state
             scheduler.load_state_dict(checkpoint['scheduler'])
-        # Load best score
-        if 'best_score' in checkpoint:
+
+        if 'best_score' in checkpoint:  # Load best score
             best_score = checkpoint['best_score']
             logger.info('best score of loaded model: {:.3f}'.format(checkpoint['best_score']))
         logger.info('loaded {} at epoch {}'.format(file_path, checkpoint['epoch']))
@@ -125,10 +126,13 @@ def load_checkpoint(model, ckpt_path, opt=None, device='cpu', scheduler=None):
 
 def predict(scores, threshold):
     """ Returns the class and max score of the sample. If the max score<threshold returns -1.
+
     Args:
-        scores: Softmax scores of all classes and samples in batch
-        threshold: Minimum score to classify as a known sample
-    Returns: Tensor with predicted class and score.
+        scores: Softmax scores of all classes and samples in batch.
+        threshold: Minimum score to classify as a known sample.
+
+    Returns:
+        Tensor with predicted class and score.
     """
     pred_score, pred_class = torch.max(scores, dim=1)
     unk = pred_score < threshold
@@ -136,45 +140,49 @@ def predict(scores, threshold):
     return torch.stack((pred_class, pred_score), dim=1)
 
 
-def filter_correct(logits, target, threshold):
+def filter_correct(logits, targets, threshold):
     """Returns the indices of correctly predicted known samples.
+
     Args:
         logits (tensor): Logits tensor
-        target (tensor): Targets tensor
+        targets (tensor): Targets tensor
         threshold (float): Minimum score for the target to be classified as known.
+
     Returns:
         tuple: Tuple containing in fist position the tensor with indices of correctly predicted samples.
     """
     with torch.no_grad():
         scores = torch.nn.functional.softmax(logits, dim=1)
         pred = predict(scores, threshold)
-        correct = (target >= 0) * (pred[:, 0] == target)
+        correct = (targets >= 0) * (pred[:, 0] == targets)
         return torch.nonzero(correct, as_tuple=True)
 
 
 def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
     """ Main training loop.
+
     Args:
-        model (toch.model): Model
-        data_loader (torch.DataLoader): Dataloader
+        model (torch.model): Model
+        data_loader (torch.DataLoader): DataLoader
         optimizer (torch.Optimizer): Optimizer
         device (cuda): cuda id
         loss_fn: Loss function
         trackers: Dictionary of trackers
         cfg: General configuration structure
     """
-
     # Reset dictionary of training metrics
-    for t in trackers.values():
-        t.reset()
+    for metric in trackers.values():
+        metric.reset()
+
     j = None
+
     # training loop
     for x, t in data_loader:
         model.train()  # To collect batch normalisation statistics
         batch_len = t.shape[0]  # Samples in current batch
         optimizer.zero_grad(set_to_none=True)
-        x = x.to(device, non_blocking=True)
-        t = t.to(device, non_blocking=True)
+        x = x.to(device)
+        t = t.to(device)
 
         # If the gradient with respect to the input is needed
         if cfg.adv.who == 'fgsm':
@@ -182,7 +190,7 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
             x.grad = None
 
         # Forward pass
-        logits, features = model(x, features=True)
+        logits, features = model(x)
 
         # Calculate loss
         if cfg.loss.type == 'objectosphere':
@@ -208,8 +216,9 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
             # Get the candidates to adversarial samples
             num_adv_samples = 0
             correct_idx = None
-            if cfg.adv.mode == 'filter':  # Perturb corrected classified samples
-                correct_idx = filter_correct(logits, t, cfg.threshold, features=None)
+            # Perturb corrected classified samples
+            if cfg.adv.mode == 'filter':
+                correct_idx = filter_correct(logits=logits, targets=t, threshold=cfg.threshold)
                 num_adv_samples = len(correct_idx[0])
             elif cfg.adv.mode == 'full':  # Perturb all samples
                 correct_idx = torch.arange(batch_len, requires_grad=False, device=device)
@@ -220,26 +229,12 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
             if num_adv_samples > 0:
                 x_corr = x[correct_idx]
                 if cfg.adv.who == 'gaussian':
-                    x_adv, t_adv = adversary.add_gaussian_noise(x=x_corr,
-                                                                loc=0,
-                                                                std=cfg.adv.std,
-                                                                device=device
-                                                                )
+                    x_adv, t_adv = add_gaussian_noise(x=x_corr, loc=0, std=cfg.adv.std, device=device)
                 elif cfg.adv.who == 'random':
-                    x_adv, t_adv = adversary.add_random_noise(x=x_corr,
-                                                              epsilon=cfg.adv.epsilon,
-                                                              device=device
-                                                              )
+                    x_adv, t_adv = add_random_noise(x=x_corr, epsilon=cfg.adv.epsilon, device=device)
                 elif cfg.adv.who == 'fgsm':
                     x_corr_grad = x.grad[correct_idx]
-                    x_adv, t_adv = adversary.fgsm_attack(x=x_corr,
-                                                         epsilon=cfg.adv.epsilon,
-                                                         grad=x_corr_grad,
-                                                         device=device
-                                                         )
-                else:
-                    print('skipping adversarials')
-                    continue
+                    x_adv, t_adv = fgsm_attack(x=x_corr, epsilon=cfg.adv.epsilon, grad=x_corr_grad, device=device)
 
                 # forward pass with adversarial samples
                 logits, features = model(x_adv)
@@ -254,19 +249,33 @@ def train(model, data_loader, optimizer, device, loss_fn, trackers, cfg):
 
 
 def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
-    for t in trackers.values():
-        t.reset()
+    """
+
+    Args:
+        model:
+        loader:
+        device:
+        loss_fn:
+        n_classes:
+        trackers:
+        cfg:
+
+    Returns:
+
+    """
+    for metric in trackers.values():
+        metric.reset()
 
     model.eval()
     with torch.no_grad():
         data_len = len(loader.dataset)  # size of dataset
-        all_t = torch.empty(data_len, device=device, dtype=torch.int64).detach()  # store all targets
-        all_scores = torch.empty((data_len, n_classes), device=device).detach()  # store all scores
+        all_targets = torch.empty(data_len, device=device, dtype=torch.int64).detach()
+        all_scores = torch.empty((data_len, n_classes), device=device).detach()
 
         for i, (x, t) in enumerate(loader):
             batch_len = t.shape[0]  # current batch size, last batch has different value
-            x = x.to(device, non_blocking=True)
-            t = t.to(device, non_blocking=True)
+            x = x.to(device)
+            t = t.to(device)
             logits, features = model(x)
             scores = torch.nn.functional.softmax(logits, dim=1)
 
@@ -280,7 +289,7 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
 
             # accumulate partial results in empty tensors
             ix = i * cfg.batch_size
-            all_t[ix: ix + batch_len] = t
+            all_targets[ix: ix + batch_len] = t
             all_scores[ix: ix + batch_len] = scores
 
         # Validation cases for different losses:
@@ -295,79 +304,46 @@ def validate(model, loader, device, loss_fn, n_classes, trackers, cfg):
         min_unk_score = None
         if cfg.loss.type == 'softmax':
             min_unk_score = 0.0
-            auc = metrics.auc_score_multiclass(all_t, all_scores)
+            auc = metrics.auc_score_multiclass(all_targets, all_scores)
 
         elif cfg.loss.type in ['entropic', 'objectosphere']:
             min_unk_score = 1 / n_classes
-            max_kn_scores = torch.max(all_scores, dim=1)[0]
-            auc = metrics.auc_score_binary(all_t, max_kn_scores)
+            # max_kn_scores = torch.max(all_scores, dim=1)[0]
+            auc = metrics.auc_score_binary(all_targets, all_scores)
 
         elif cfg.loss.type == 'BGsoftmax':
             min_unk_score = 0.0
-            # Removes last column of scores to calculate the max score of any known class
-            all_scores = all_scores[:, :-1]
+            all_scores = all_scores[:, :-1]  # Removes last column of scores to use only known classes
+
             # Replaces the biggest class label with -1
             biggest_label = loader.dataset.unique_classes[-1]
-            all_t[all_t == biggest_label] = -1
-            max_kn_scores = torch.max(all_scores[:, :-1], dim=1)[0]
-            auc = metrics.auc_score_binary(all_t, max_kn_scores)
+            all_targets[all_targets == biggest_label] = -1
 
-        # kn_c, un_c: confidence for known or unknown samples.
-        # kn_len, un_len: number of known or unknown samples.
-        kn_c, kn_len, un_c, un_len = metrics.confidence(all_scores, all_t, min_unk_score)
+            auc = metrics.auc_score_binary(all_targets, all_scores)
+
+        kn_conf, kn_count, neg_conf, neg_count = metrics.confidence(all_scores, all_targets, min_unk_score)
         trackers['auc'].update(auc, data_len)
-        if kn_len:
-            trackers['conf_kn'].update(kn_c, kn_len)
-        if un_len:
-            trackers['conf_unk'].update(un_c, un_len)
-
-
-def save_eval_arrays(model, loader, device, batch_size, file_name):
-    """Extract deep features, logits and targets for all dataset.
-    Returns numpy arrays"""
-    model.eval()
-    with torch.no_grad():
-        data_len = len(loader.dataset)  # dataset length
-        logits_dim = model.logits.out_features  # logits output classes
-        features_dim = model.net.fc.out_features  # features dimensionality
-        all_targets = torch.empty(data_len, device=device)  # store all targets
-        all_logits = torch.empty((data_len, logits_dim), device=device)  # store all logits
-        all_feat = torch.empty((data_len, features_dim), device=device)  # store all features
-        all_scores = torch.empty((data_len, logits_dim), device=device)  # store all scores
-
-        for i, (x, t) in enumerate(loader):
-            n = t.shape[0]  # current batch size, very last batch has different value
-            x = x.to(device)
-            t = t.to(device)
-            logits, features = model(x, features=True)
-            scores = torch.nn.functional.softmax(logits, dim=1)
-            # accumulate results in all_tensor
-            ix = i * batch_size
-            all_targets[ix:ix + n] = t
-            all_logits[ix:ix + n] = logits
-            all_feat[ix:ix + n] = features
-            all_scores[ix:ix + n] = scores
-    # Parse to numpy arrays
-    gt = all_targets.detach().cpu().numpy()
-    logits = all_logits.detach().cpu().numpy()
-    features = all_feat.detach().cpu().numpy()
-    scores = all_scores.detach().cpu().numpy()
-    # Save arrays to file
-    np.savez(file_name, gt=gt, logits=logits, features=features, scores=scores)
-    logger.info('gt, logits, features, scores saved in: {}'.format(file_name))
+        if kn_count:
+            trackers['conf_kn'].update(kn_conf, kn_count)
+        if neg_count:
+            trackers['conf_unk'].update(neg_conf, neg_count)
 
 
 @hydra.main(config_path="../config", config_name="config")
 def main(cfg: DictConfig):
-    # # Setting the logger
+    # Setting the logger
     msg_format = "{time:DD_MM_HH:mm} {message}"
-    logger.configure(handlers=[{"sink": stderr, "level": "INFO", "format": msg_format}])
+    logger.configure(
+        handlers=[{"sink": stderr, "level": "INFO", "format": msg_format}])
     logger.add(cfg.log_name, format=msg_format, level="INFO", mode='w')
+    
     check_config(cfg)
+    
     if cfg.dist.distributed:
         os.environ['MASTER_ADDR'] = 'localhost'
         os.environ['MASTER_PORT'] = cfg.dist.port
-        print('\nDistributed training at: {}:{}'.format(os.environ['MASTER_ADDR'], os.environ['MASTER_PORT']))
+        print('\nDistributed training at: {}:{}'.format(
+            os.environ['MASTER_ADDR'], os.environ['MASTER_PORT']))
         print('Using {} gpus'.format(cfg.dist.gpus))
         mp.spawn(worker, nprocs=cfg.dist.gpus, args=(cfg,))
     else:
@@ -375,13 +351,20 @@ def main(cfg: DictConfig):
         worker(gpu, cfg)
 
 
+# noinspection PyArgumentList
 def worker(gpu, cfg):
+    """
+    Args:
+        gpu: 
+        cfg: 
+    Returns:
+    """
     # referencing best score and setting seeds
     global best_score
     set_seeds(cfg.seed)
+    
     if cfg.dist.distributed:
-        # initialize process group
-        # For multiprocessing-distributed rank needs to be the global rank among all the processes
+        # initialize process group. For rank needs to be the global rank among all the processes
         rank = gpu
         dist.init_process_group(
             backend='nccl',
@@ -390,20 +373,22 @@ def worker(gpu, cfg):
             rank=rank
         )
     else:
-        # Only one rank
-        rank = 0
+        rank = 0  # Only one rank
         logger.info('Training is using 1 gpu')
 
     # Set image transformations
-    train_tf = tf.Compose(
-        [
-            tf.Resize(256),
-            tf.RandomCrop(224),
-            tf.RandomHorizontalFlip(0.5),
-            tf.ToTensor()]
+    train_tr = tf.Compose(
+        [tf.Resize(256),
+         tf.RandomCrop(224),
+         tf.RandomHorizontalFlip(0.5),
+         tf.ToTensor()]
     )
-
-    val_tf = tf.Compose([tf.Resize(256), tf.CenterCrop(224), tf.ToTensor()])
+    
+    val_tr = tf.Compose(
+        [tf.Resize(256),
+         tf.CenterCrop(224),
+         tf.ToTensor()]
+    )
 
     # create datasets
     data_dir = Path(cfg.data.data_dir)
@@ -411,14 +396,14 @@ def worker(gpu, cfg):
     val_file = data_dir / cfg.data.val_file
 
     if train_file.exists() and val_file.exists():
-        train_ds = ImagenetDataset(train_file, cfg.data.imagenet_path, train_tf)
-        val_ds = ImagenetDataset(val_file, cfg.data.imagenet_path, val_tf)
+        train_ds = ImagenetDataset(csv_file=train_file, imagenet_path=cfg.data.imagenet_path, transformation=train_tr)
+        val_ds = ImagenetDataset(csv_file=val_file, imagenet_path=cfg.data.imagenet_path, transformation=val_tr)
 
         # If using garbage class, replaces label -1 to maximum label + 1
         if cfg.loss.type == 'BGsoftmax':
             # Only change the unknown label of the training dataset
-            train_ds.replace_unknown_label()
-            val_ds.replace_unknown_label()
+            train_ds.replace_negative_label()
+            val_ds.replace_negative_label()
     else:
         raise FileNotFoundError('train/validation file does not exist')
 
@@ -459,11 +444,11 @@ def worker(gpu, cfg):
 
     # set loss
     loss = None
-    class_weights = None
-    if train_ds.has_unknowns():
-        n_classes = train_ds.label_cnt - 1  # number of classes - 1 when training with unknowns
+    if train_ds.has_negatives():
+        # number of classes - 1 when training with unknowns
+        n_classes = train_ds.label_count - 1
     else:
-        n_classes = train_ds.label_cnt
+        n_classes = train_ds.label_count
     if cfg.loss.type == 'objectosphere':
         loss = ObjectoLoss(n_classes, cfg.loss.w, cfg.loss.xi)
     elif cfg.loss.type == 'entropic':
@@ -475,7 +460,9 @@ def worker(gpu, cfg):
         loss = torch.nn.CrossEntropyLoss(weight=class_weights).to(device)
 
     # Create the model
-    model = ResNet50(fc_layer_dim=n_classes, out_features=n_classes, logit_bias=False)
+    model = ResNet50(fc_layer_dim=n_classes,
+                     out_features=n_classes,
+                     logit_bias=False)
     model.to(device)
 
     # Create optimizer
@@ -505,10 +492,10 @@ def worker(gpu, cfg):
     # wrap model in ddp
     if cfg.dist.distributed:
         model = DistributedDataParallel(model, device_ids=[gpu], output_device=gpu)
-
-    start_epsilon = cfg.adv.epsilon  # Needed to keep initial epsilon when using decay
+    # Needed to keep initial epsilon when using decay
+    start_epsilon = cfg.adv.epsilon
     adv_who = cfg.adv.who  # Store initial adversary
-    # Checks if train the model without adversarials for a nr. of epochs then add adversarial samples.
+    # Checks if train the model without adversarial for a nr. of epochs then add adversarial samples.
     if cfg.adv.wait > 0:
         cfg.adv.who = 'no_adv'
 
@@ -521,8 +508,8 @@ def worker(gpu, cfg):
     if rank == 0:
         # Info on console
         logger.info('========== Data ==========')
-        logger.info('train_ds len:{}, labels:{}'.format(len(train_ds), train_ds.label_cnt))
-        logger.info('val_ds len:{}, labels:{}'.format(len(val_ds), val_ds.label_cnt))
+        logger.info('train_len:{}, labels:{}'.format(len(train_ds), train_ds.label_count))
+        logger.info('val_len:{}, labels:{}'.format(len(val_ds), val_ds.label_count))
         logger.info('Total batch size: {}'.format(cfg.batch_size * cfg.dist.gpus))
         logger.info('========== Training ==========')
         logger.info('Initial epoch: {}'.format(start_epoch))
@@ -550,7 +537,7 @@ def worker(gpu, cfg):
 
         # calculate epsilon
         if (cfg.adv.who in ['fgsm', 'random']) and 0 < cfg.adv.mu < 1 and cfg.adv.decay > 0:
-            cfg.adv.epsilon = adversary.decay_epsilon(
+            cfg.adv.epsilon = decay_epsilon(
                 start_eps=start_epsilon,
                 mu=cfg.adv.mu,
                 curr_epoch=epoch,
@@ -560,10 +547,12 @@ def worker(gpu, cfg):
 
         # training loop
         train(model, train_loader, optimizer=opt, device=device, loss_fn=loss, trackers=t_metrics, cfg=cfg)
+
         train_time = time.time() - epoch_time
 
         # validation loop
         validate(model, val_loader, device, loss_fn=loss, n_classes=n_classes, trackers=v_metrics, cfg=cfg)
+
         curr_score = v_metrics['auc'].avg
 
         # learning rate scheduler step
@@ -589,9 +578,11 @@ def worker(gpu, cfg):
             writer.add_scalar('val/conf_unk', v_metrics['conf_unk'].avg, epoch)
 
             #  training information on console
-            val_time = time.time() - train_time - epoch_time  # validation+metrics writer+save model time
+            # validation+metrics writer+save model time
+            val_time = time.time() - train_time - epoch_time
             info = 'ep:{} train:{} val:{} t:{:.1f}s v:{:.1f}s'.format(
-                epoch, dict(t_metrics), dict(v_metrics), train_time, val_time)
+                epoch, dict(t_metrics), dict(v_metrics), train_time, val_time
+            )
             logger.info(info)
 
             # save best model and current model
@@ -612,41 +603,6 @@ def worker(gpu, cfg):
                 break
 
     logger.info('Training finished')
-
-    # ========================== Evaluation ========================== #
-    test_file = data_dir / cfg.data.test_file
-    val_ds = ImagenetDataset(val_file, cfg.data.imagenet_path, val_tf)
-    test_ds = ImagenetDataset(test_file, cfg.data.imagenet_path, val_tf)
-
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=cfg.batch_size,
-        shuffle=True,
-        num_workers=cfg.workers,
-        pin_memory=True
-    )
-
-    test_loader = DataLoader(
-        test_ds,
-        batch_size=cfg.batch_size,
-        shuffle=False,
-        num_workers=cfg.workers,
-        pin_memory=True
-    )
-
-    logger.info('Evaluating in validation and test datasets')
-    arrays_path = '{}_curr_val_arr.npz'.format(cfg.exp_name)  # Current model is the from last epoch
-    save_eval_arrays(model, val_loader, device, cfg.batch_size, arrays_path)
-    arrays_path = '{}_curr_test_arr.npz'.format(cfg.exp_name)
-    save_eval_arrays(model, test_loader, device, cfg.batch_size, arrays_path)
-    # Evaluate best model if exists
-    best_path = Path('{}_best.pth'.format(cfg.exp_name))
-    if best_path.exists():
-        load_checkpoint(model, best_path, opt=None, device=device)
-        arrays_path = '{}_best_val_arr.npz'.format(cfg.exp_name)
-        save_eval_arrays(model, val_loader, device, cfg.batch_size, arrays_path)
-        arrays_path = '{}_best_test_arr.npz'.format(cfg.exp_name)
-        save_eval_arrays(model, test_loader, device, cfg.batch_size, arrays_path)
 
 
 if __name__ == '__main__':

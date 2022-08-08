@@ -33,21 +33,6 @@ workers: 4
 threshold: 0.5
 patience: 0     # Number of epochs to wait. It must be > 0
 
-adv:
-  who: no_adv   # [no_adv, gaussian, random, fgsm]
-  epsilon: 0.0  # For [fgsm,random]
-  std: 0.00     # For gaussian
-  mode: filter  # [filter, full]
-  mu: 1.0       # Factor to decay epsilon every eps_n epochs
-  decay: 0      # Epochs to wait to decrease epsilon by mu
-  wait: 0       # Epochs to train with only knowns, before adding adversarials
-
-# Parameters for distributed training
-dist:
-  distributed: False
-  gpus: 1
-  port: "8889"
-
 # Hydra Parameters
 hydra:
   run:

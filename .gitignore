@@ -4,3 +4,4 @@
 /src/__pycache__/*
 /analysis/fig/*
 src/protocols/__pycache__/*
+data/*

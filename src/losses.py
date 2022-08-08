@@ -6,7 +6,8 @@ import torch
 
 
 class ObjectoLoss:
-    # Simple wrapping class to handle losses, the class is only intended to keep code consistency.
+    # Simple wrapping class to handle losses, the class is only intended to
+    # keep code consistency.
     def __init__(self, n_classes, unk_weight=1, xi=10):
         # Entropic open-set term of the loss
         self.entropic = EntropicLoss(n_classes, unk_weight)
@@ -14,7 +15,8 @@ class ObjectoLoss:
         self.objecto = losses.objectoSphere_loss(knownsMinimumMag=xi)
 
     def __call__(self, features, logits, targets, alpha, sample_weights=None):
-        objecto_term = self.objecto(features, targets, sample_weights, reduction='sum')
+        objecto_term = self.objecto(features, targets, sample_weights,
+                                    reduction='sum')
         entropic_term = self.entropic(logits, targets, sample_weights)
         loss = entropic_term + alpha * objecto_term
         self.entropic_value = entropic_term.item()
@@ -22,7 +24,8 @@ class ObjectoLoss:
         return loss
 
 
-# Simple wrapping class to handle losses, the class is only intended to keep code consistency
+# Simple wrapping class to handle losses, the class is only intended to keep
+# code consistency
 class EntropicLoss:
     def __init__(self, n_classes, unk_weight=1):
         self.entropic = EntropicOpensetLoss(n_classes, unk_weight)
@@ -34,23 +37,27 @@ class EntropicLoss:
 # Taken from vast, modified to accept mini batches without positive examples.
 class EntropicOpensetLoss:
     def __init__(self, num_of_classes=10, unk_weight=1):
-        self.num_of_classes = num_of_classes
-        self.eye = tools.device(torch.eye(self.num_of_classes))
-        self.ones = tools.device(torch.ones(self.num_of_classes))
-        self.unknowns_multiplier = unk_weight / self.num_of_classes
+        self.class_count = num_of_classes
+        self.eye = tools.device(torch.eye(self.class_count))
+        self.ones = tools.device(torch.ones(self.class_count))
+        self.unknowns_multiplier = unk_weight / self.class_count
 
     @tools.loss_reducer
-    def __call__(self, logit_values, target, sample_weights=None):
-        categorical_targets = tools.device(torch.zeros(logit_values.shape))
-        known_indexes = target != -1
-        unknown_indexes = ~known_indexes
-        if torch.any(known_indexes):  # check if there is known samples in the batch
-            categorical_targets[known_indexes, :] = self.eye[target[known_indexes]]
-        categorical_targets[unknown_indexes, :] = (
-            self.ones.expand((torch.sum(unknown_indexes).item(), self.num_of_classes))
-            * self.unknowns_multiplier
+    def __call__(self, logits, target, sample_weights=None):
+        categorical_targets = tools.device(torch.zeros(logits.shape))
+        kn_idx = target != -1
+        unk_idx = ~kn_idx
+        # check if there is known samples in the batch
+        if torch.any(kn_idx):
+            categorical_targets[kn_idx, :] = self.eye[target[kn_idx]]
+
+        categorical_targets[unk_idx, :] = (
+            self.ones.expand(
+                torch.sum(unk_idx).item(), self.class_count
+            ) * self.unknowns_multiplier
         )
-        log_values = f.log_softmax(logit_values, dim=1)
+
+        log_values = f.log_softmax(logits, dim=1)
         negative_log_values = -1 * log_values
         loss = negative_log_values * categorical_targets
         sample_loss = torch.sum(loss, dim=1)
@@ -82,14 +89,15 @@ class AverageMeter(object):
         return '{:.2e}'.format(self.avg)
 
 
-# Taken from https://github.com/Lance0218/Pytorch-DistributedDataParallel-Training-Tricks/
+# Taken from:
+# https://github.com/Lance0218/Pytorch-DistributedDataParallel-Training-Tricks/
 class EarlyStopping:
     """stops the training if validation loss/metrics doesn't improve after a given patience"""
     def __init__(self, patience=100, delta=0):
         """
         Args:
-            patience (int): How long to wait after last time validation loss improved. Default: 100
-            delta (float): Minimum change in the monitored quantity to qualify as an improvement. Default: 0
+            patience: How long wait after last time validation loss improved. Default: 100
+            delta: Minimum change in the monitored quantity to qualify as an improvement. Default: 0
         """
         self.patience = patience
         self.counter = 0
