@@ -133,8 +133,8 @@ class OpenSetProtocol:
         Taken from: https://github.com/MadryLab/robustness
 
         Args:
-            node_wn_id: Wordnet id of the parent sunset.
-            in_imagenet: If True, only considers descendants among ImageNet synsets,
+            node_wn_id(str): Wordnet id of the parent sunset.
+            in_imagenet(bool): If True, only considers descendants among ImageNet synsets,
                         else considers all possible descendants in the WordNet hierarchy.
 
         Returns:
@@ -151,7 +151,7 @@ class OpenSetProtocol:
         """ Returns sorted list of files inside the directory.
 
         Args:
-            dir_path: directory to read.
+            dir_path(Path): directory to read.
 
         Returns:
             images: list of images inside directory
@@ -208,11 +208,11 @@ class OpenSetProtocol:
         self.label_map = dict(zip(self.kn_classes, range(len(self.kn_classes))))
 
     def query_images(self, target_classes, imagenet_split):
-        """Reads the imagenet directory structure, returns a tuple of images paths and class name.
+        """ Reads the imagenet directory structure, returns a tuple of images_paths and class_name.
 
         Args:
-            target_classes: List of classes of  images are queried.
-            imagenet_split: Possible values:'train', 'val'. The splits in imagenet dataset.
+            target_classes(list): List of classes to query images.
+            imagenet_split(str): Possible values:'train', 'val'. The splits in imagenet dataset.
 
         Returns:
             images: list of all paths of images in all target_classes.
@@ -232,7 +232,7 @@ class OpenSetProtocol:
     def get_label(self, class_name):
         """ Maps the label of a class name
         Args:
-            class_name: Class name to get an integer label
+            class_name(str): Class name to get an integer label
         Returns:
             Integer label
         """
@@ -248,8 +248,8 @@ class OpenSetProtocol:
         """ Simple csv file saver
 
         Args:
-            path: File path
-            data : Data iterable
+            path(Path): File path
+            data(Iterable): Data iterable
         """
         with open(path, 'w', encoding="utf-8") as file_:
             writer = csv.writer(file_)
@@ -259,7 +259,7 @@ class OpenSetProtocol:
         """ Saves train, validation and test datasets in separated csv files.
 
         Args:
-            out_dir: Directory to save file.
+            out_dir(Path): Directory to save file.
         """
         out_dir = Path(out_dir)
         # write csv files
@@ -271,7 +271,7 @@ class OpenSetProtocol:
     def create_dataset(self, random_state=42):
         """ Create the datasets of the protocol.
         Args:
-            random_state: Integer.
+            random_state(int): Integer.
         """
         self.update_classes()
 

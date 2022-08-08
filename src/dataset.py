@@ -1,23 +1,24 @@
-# Code based on: Bhoumik, A. (2021). Open-set Classification on ImageNet.
-import torch
-import pandas as pd
-import numpy as np
-from torch.utils.data.dataset import Dataset
-from PIL import Image
+""" Code based on: Bhoumik, A. (2021). Open-set Classification on ImageNet."""
 from pathlib import Path
+import numpy as np
+import pandas as pd
+from PIL import Image
+import torch
+from torch.utils.data.dataset import Dataset
 
 
 class ImagenetDataset(Dataset):
     """ Imagenet Dataset. """
 
     def __init__(self, csv_file, imagenet_path, transformation=None):
-        """ Constructs an Imagenet Dataset from a CSV file. The file should list the path to the images
-        and the corresponding label. For example: val/n02100583/ILSVRC2012_val_00013430.JPEG,   0
+        """ Constructs an Imagenet Dataset from a CSV file. The file should list the path to the
+        images and the corresponding label. For example:
+        val/n02100583/ILSVRC2012_val_00013430.JPEG,   0
 
         Args:
-            csv_file: Path to the csv file with image paths and labels.
-            imagenet_path: Home directory of the Imagenet dataset.
-            transformation: Transformations to apply while loading the images.
+            csv_file(Path): Path to the csv file with image paths and labels.
+            imagenet_path(Path): Home directory of the Imagenet dataset.
+            transformation(torchvision.transforms): Transformations to apply to the images.
         """
         self.dataset = pd.read_csv(csv_file, header=None)
         self.imagenet_path = Path(imagenet_path)
@@ -30,28 +31,27 @@ class ImagenetDataset(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, index):
-        """ Returns a tuple (image, label) of the dataset at the given index. If available, it applies the
-        defined transformations to the image. Images are converted to RGB format.
+        """ Returns a tuple (image, label) of the dataset at the given index. If available, it
+        applies the defined transformations to the image. Images are converted to RGB format.
 
         Args:
-            index (int): Image index
+            index(int): Image index
 
         Returns:
-            x, t: Tuple (image tensor, label tensor)
+            image, label: (image tensor, label tensor)
         """
         if torch.is_tensor(index):
             index = index.tolist()
 
-        jpeg_path = self.dataset.iloc[index, 0]
-        label = self.dataset.iloc[index, 1]
-        x = Image.open(self.imagenet_path / jpeg_path).convert('RGB')
+        jpeg_path, label = self.dataset.iloc[index]
+        image = Image.open(self.imagenet_path / jpeg_path).convert("RGB")
 
         if self.transformation is not None:
-            x = self.transformation(x)
+            image = self.transformation(image)
 
         # convert int label to tensor
-        t = torch.as_tensor(int(label), dtype=torch.int64)
-        return x, t
+        label = torch.as_tensor(int(label), dtype=torch.int64)
+        return image, label
 
     def has_negatives(self):
         """ Returns true if the dataset contains negative samples."""
@@ -67,6 +67,11 @@ class ImagenetDataset(Dataset):
         self.unique_classes.sort()
 
     def calculate_class_weights(self):
+        """ Calculate the class weights based on sample counts.
+
+        Returns:
+            class_weights: Tensor with weight for every class.
+        """
         # TODO: Should it be part of dataset class?
         counts = self.dataset.groupby(1).count().to_numpy()
         class_weights = (len(self.dataset) / (counts * self.label_count))

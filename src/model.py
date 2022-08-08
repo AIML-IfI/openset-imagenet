@@ -1,7 +1,6 @@
-# Taken from VAST: https://github.com/Vastlab/vast/tree/main/vast/architectures
+""" ResNet50, parts taken from VAST: https://github.com/Vastlab/vast/tree/main/vast/architectures"""
 from torchvision import models
-import torch.nn as nn
-
+from torch import nn
 
 class ResNet50(nn.Module):
     """Represents a ResNet50 model"""
@@ -10,9 +9,9 @@ class ResNet50(nn.Module):
         """ Builds a ResNet model, with deep features and logits layers.
 
         Args:
-            fc_layer_dim: Deep features dimension.
-            out_features: Logits dimension.
-            logit_bias: True to use bias term in the logits layer.
+            fc_layer_dim(int): Deep features dimension.
+            out_features(int): Logits dimension.
+            logit_bias(bool): True to use bias term in the logits layer.
         """
         super(ResNet50, self).__init__()
         resnet_base = models.resnet50(pretrained=False)
@@ -21,17 +20,20 @@ class ResNet50(nn.Module):
         resnet_base.fc = nn.Linear(in_features=fc_in_features, out_features=fc_layer_dim)
 
         self.resnet_base = resnet_base
-        self.logits = nn.Linear(in_features=fc_layer_dim, out_features=out_features, bias=logit_bias)
+        self.logits = nn.Linear(
+            in_features=fc_layer_dim,
+            out_features=out_features,
+            bias=logit_bias)
 
-    def forward(self, x):
+    def forward(self, image):
         """ Forward pass
 
         Args:
-            x: Input samples
+            image(tensor): Tensor with input samples
 
         Returns:
             Logits and deep features of the samples.
         """
-        features = self.resnet_base(x)
+        features = self.resnet_base(image)
         logits = self.logits(features)
         return logits, features

@@ -1,16 +1,17 @@
-import torch
-import torch.nn.functional as f  # TODO: it was torch.functional as f
-from sklearn import metrics
+""" Various functions to calculate confidence and AUC."""
 import numpy as np
+from sklearn import metrics
+import torch
+import torch.nn.functional as f  # It was torch.functional as f
 
 
 def confidence(scores, target_labels, offset=0.1):
     """ Returns model's confidence, Taken from https://github.com/Vastlab/vast/tree/main/vast.
 
     Args:
-        scores: Softmax scores of the samples.
-        target_labels: Target label of the samples.
-        offset: Confidence offset value, typically 1/number_of_classes.
+        scores(tensor): Softmax scores of the samples.
+        target_labels(tensor): Target label of the samples.
+        offset(float): Confidence offset value, typically 1/number_of_classes.
 
     Returns:
         kn_conf: Confidence of known samples.
@@ -29,18 +30,22 @@ def confidence(scores, target_labels, offset=0.1):
             kn_conf = torch.sum(scores[known, target_labels[known]]).item() / kn_count
         if neg_count:
             # Average confidence unknown samples
-            neg_conf = torch.sum(1.0 + offset - torch.max(scores[~known], dim=1)[0]).item() / neg_count
+            neg_conf = torch.sum(
+                1.0
+                + offset
+                - torch.max(scores[~known], dim=1)[0]
+            ).item() / neg_count
     return kn_conf, kn_count, neg_conf, neg_count
 
 
 def predict_objectosphere(logits, features, threshold):
-    """ Predicts the class and softmax score of the input samples. Uses the product norms*score to threshold
-    the unknown samples.
+    """ Predicts the class and softmax score of the input samples. Uses the product norms*score to
+    threshold the unknown samples.
 
     Args:
-        logits: Logit values of the samples.
-        features: Deep features of the samples.
-        threshold: Threshold value to discard unknowns.
+        logits(tensor): Logit values of the samples.
+        features(tensor): Deep features of the samples.
+        threshold(float): Threshold value to discard unknowns.
 
     Returns:
         Tensor of predicted classes and predicted score.
@@ -58,9 +63,10 @@ def auc_score_binary(target_labels, pred_scores, unk_class=-1):
     (or -2 if measuring unknowns).
 
     Args:
-        target_labels: Target label of the samples.
-        pred_scores: Softmax scores dim = [n_samples, n_classes] or [n_samples, n_classes-1] if BGSoftmax
-        unk_class: Class reserved for unknown samples.
+        target_labels(numpy array): Target label of the samples.
+        pred_scores(numpy array): Softmax scores dim=[n_samples, n_classes] or
+                                [n_samples, n_classes-1] if the loss is BGSoftmax
+        unk_class(int): Class reserved for unknown samples.
 
     Returns:
         Binary AUC between known and unknown samples.
@@ -72,9 +78,9 @@ def auc_score_binary(target_labels, pred_scores, unk_class=-1):
 
     max_scores = np.max(pred_scores, axis=1)
 
-    kn = target_labels != unk_class
-    target_labels[kn] = 1
-    target_labels[~kn] = -1
+    known = target_labels != unk_class
+    target_labels[known] = 1
+    target_labels[~known] = -1
     return metrics.roc_auc_score(target_labels, max_scores)
 
 
@@ -82,8 +88,8 @@ def auc_score_multiclass(target_labels, pred_scores):
     """ Calculates the multiclass AUC, each class against the rest.
 
     Args:
-        target_labels: Target label of the samples.
-        pred_scores: Predicted softmax scores of the samples.
+        target_labels(numpy array): Target label of the samples.
+        pred_scores(numpy array): Predicted softmax scores of the samples.
 
     Returns:
         Multiclass AUC: measures the mean AUC including known and negatives.
@@ -93,4 +99,4 @@ def auc_score_multiclass(target_labels, pred_scores):
     if torch.is_tensor(pred_scores):
         pred_scores = pred_scores.cpu().detach().numpy()
 
-    return metrics.roc_auc_score(target_labels, pred_scores, multi_class='ovr')
+    return metrics.roc_auc_score(target_labels, pred_scores, multi_class="ovr")
