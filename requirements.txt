@@ -8,4 +8,5 @@ loguru==0.6.0
 hydra-core==1.2.0
 tqdm==4.64.0
 robustness==1.2.1.post2
+tensorboard
 git+https://github.com/Vastlab/vast.git

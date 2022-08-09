@@ -1,41 +1,68 @@
 
 ---
 # General Parameters
-exp_name: experiment
+name: experiment
 checkpoint:         # Relative path from the original working directory
 log_name: training.log  # name of the file with training info
 train_mode: train  # either: {train, finetune}
 
+# Data Parameters
 data:
-  imagenet_path: /local/scratch/datasets/ImageNet/ILSVRC2012/
-  data_dir: ${hydra:runtime.cwd}/data
-  train_file: p1_train.csv        # relative to data directory
-  val_file:   p1_val.csv          # relative to data directory
-  test_file:  p1_test.csv         # relative to data directory
+  imagenet_path: /local/scratch/datasets/ImageNet/ILSVRC2012/ # ILSVRC2012 path
+  train_file: data/p1_train.csv        # relative to data directory
+  val_file:   data/p1_val.csv          # relative to data directory
+  test_file:  data/p1_test.csv         # relative to data directory
 
 loss:
-  type: entropic  # either {objectosphere, entropic, softmax}
-  w: 1.0          # Weight of unknown samples in entropic
-  xi: 0.0         # Applies for objectosphere
-  alpha: 0.0      # Applies for objectosphere
+  type: entropic  # either {objectosphere, entropic, softmax, BGSoftmax}
+  # Entropic Parameters
+  w: 1.0          # Weight of unknown samples in entropic term
+  # Objectosphere parameters
+  xi: 0.0         # Norm threshold for features
+  alpha: 0.0      # Objectosphere regularization term
 
+# Optimiser Parameters
 opt:
-  type: adam  # either {adam, sgd}
-  lr: 1e-3
-  decay: 0    # number of epochs to wait before decreasing the learning rate, if 0, no decay
-  gamma: 1    # Factor to decay the learning rate
+  type: adam  # Two options: {adam, sgd}
+  lr: 1e-3    # Initial learning rate
+  decay: 0    # Number of epochs to wait for each learning rate reduction. 0 means no decay
+  gamma: 1    # Factor to reduce the learning rate
 
 # Common parameters
-seed: 42    # Sets torch and numpy seeds
-batch_size: 64  # if distributed the batch size is multiplied for the number of dist.gpus
+seed: 42        # Common seed across all source of randomness
+batch_size: 64  # If distributed training the batch size is multiplied by the number of gpus
 epochs: 100
-workers: 4
-threshold: 0.5
-patience: 0     # Number of epochs to wait. It must be > 0
+workers: 4      # Dataloader number of workers
+threshold: 0.5  # Score threshold, samples with smaller scores are classified as unknowns.
+patience: 0     # Number of epochs to wait before stopping the training. 0 means no early stopping
+
+# Adversarial Training Parameters
+adv:
+  who: no_adv   # Type of adversarial samples: {no_adv, gaussian, random, fgsm}
+                # no_adv: do not use adversarial samples as negatives
+                # gaussian: Generate negatives perturbing clean images with gaussian noise
+                # random:Generate negatives perturbing clean images with random noise
+                # fgsm: Generate negatives perturbing clean images using FGSM attack.
+  wait: 0       # Number epochs to train only with known samples, before adding adversarial samples
+  mode: filter  # Selection of images to be perturbed:
+                # filter: Generate negatives perturbing only correctly classified images in a batch
+                # full: Generate negatives perturbing all images in a batch 
+  epsilon: 0.0  # Magnitude of the initial perturbation. Applies for {fgsm,random}
+  std: 0.00     # Standard deviation of the perturbation Applies only for {gaussian}
+  # Parameters to decay epsilon
+  decay: 0      # Number of epochs to wait for each epsilon reduction.
+  mu: 1.0       # Factor to reduce epsilon every 'decay' number of epochs. 1 means no decay
+
+# Parameters for Distributed Data Parallel training
+dist:
+  distributed: False  # False to use only one GPU # TODO: delete this option
+  gpus: 1             # Number of GPUS to use 
+  port: "8889"        # Default port to communicate.
 
 # Hydra Parameters
 hydra:
   run:
-    dir: ./outputs/${exp_name}
+    dir: ./outputs/${name}
 defaults:
   - override hydra/job_logging: none
+

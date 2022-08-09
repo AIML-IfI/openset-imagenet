@@ -122,6 +122,7 @@ def load_checkpoint(model, checkpoint, opt=None, device="cpu", scheduler=None):
         return start_epoch, best_score
     else:
         logger.info("Checkpoint file not found")
+        raise Exception("Checkpoint file not found")
 
 
 def predict(scores, threshold):
@@ -341,7 +342,7 @@ def validate(model, data_loader, device, loss_fn, n_classes, trackers, cfg):
             trackers["conf_unk"].update(neg_conf, neg_count)
 
 
-@hydra.main(config_path="../config", config_name="config")
+@hydra.main(config_path="../config", config_name="config", version_base="1.2")
 def main(cfg: DictConfig):
     """ Main function wrapped in hydra.main who does the setup and manages the config file.
 
@@ -370,8 +371,8 @@ def main(cfg: DictConfig):
 def worker(gpu, cfg):
     """ Main worker creates all required instances, trains and validates the model.
     Args:
-        gpu(): GPU index.
-        cfg: Configuration file.
+        gpu(int): GPU index.
+        cfg(DictConfig): Configuration dictionary.
     """
     # referencing best score and setting seeds
     global BEST_SCORE
@@ -406,9 +407,8 @@ def worker(gpu, cfg):
     )
 
     # create datasets
-    data_dir = Path(cfg.data.data_dir)
-    train_file = data_dir / cfg.data.train_file
-    val_file = data_dir / cfg.data.val_file
+    train_file = Path(cfg.data.train_file)
+    val_file = Path(cfg.data.val_file)
 
     if train_file.exists() and val_file.exists():
         train_ds = ImagenetDataset(
@@ -630,17 +630,17 @@ def worker(gpu, cfg):
             # validation+metrics writer+save model time
             val_time = time.time() - train_time - epoch_time
             logger.info(
-                f"ep:{epoch}"
-                f"train:{dict(t_metrics)}"
-                f"val:{dict(v_metrics)}"
-                f"t:{train_time:.1f}s"
+                f"ep:{epoch} "
+                f"train:{dict(t_metrics)} "
+                f"val:{dict(v_metrics)} "
+                f"t:{train_time:.1f}s "
                 f"v:{val_time:.1f}s")
 
             # save best model and current model
-            f_name = f"{cfg.exp_name}_curr.pth"  # current model
+            f_name = f"{cfg.name}_curr.pth"  # current model
             if curr_score > BEST_SCORE:
                 BEST_SCORE = curr_score
-                f_name = f"{cfg.exp_name}_best.pth"  # best model
+                f_name = f"{cfg.name}_best.pth"  # best model
                 logger.info(f"Saving best model at epoch: {epoch}")
             save_checkpoint(f_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
 

@@ -67,7 +67,7 @@ class ImagenetDataset(Dataset):
         self.unique_classes.sort()
 
     def calculate_class_weights(self):
-        """ Calculate the class weights based on sample counts.
+        """ Calculates the class weights based on sample counts.
 
         Returns:
             class_weights: Tensor with weight for every class.
