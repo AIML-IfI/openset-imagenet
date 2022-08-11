@@ -179,6 +179,7 @@ def train(model, data_loader, optimiser, device, loss_fn, trackers, cfg):
     for images, labels in data_loader:
         model.train()  # To collect batch-norm statistics
         batch_len = labels.shape[0]  # Samples in current batch
+        print(batch_len)
         optimiser.zero_grad(set_to_none=True)
         images = images.to(device)
         labels = labels.to(device)
@@ -434,23 +435,27 @@ def worker(gpu, cfg, out_dir,):
 
     # Create data loader
     if cfg.dist.distributed:
-        sampler = DistributedSampler(train_ds, seed=cfg.seed, drop_last=False)
+        train_sampler = DistributedSampler(train_ds, seed=cfg.seed, drop_last=False)
+        #val_sampler = DistributedSampler(val_ds, shuffle=False, drop_last=False)
     else:
-        sampler = None
+        train_sampler = None
+        val_sampler = None
+
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.batch_size,
-        shuffle=(sampler is None),
+        shuffle=(train_sampler is None),
         num_workers=cfg.workers,
         pin_memory=True,
-        sampler=sampler)
+        sampler=train_sampler)
 
     val_loader = DataLoader(
         val_ds,
         batch_size=cfg.batch_size,
-        shuffle=True,
+        shuffle=False,
         num_workers=cfg.workers,
-        pin_memory=True)
+        pin_memory=True,)
+        #sampler = val_sampler)
 
     # setup device
     device = torch.device(f"cuda:{gpu}")
@@ -545,7 +550,7 @@ def worker(gpu, cfg, out_dir,):
     writer = None
     if rank == 0:
         # Info on console
-        logger.info("========== Data ==========")
+        logger.info("============ Data ============")
         logger.info(f"train_len:{len(train_ds)}, labels:{train_ds.label_count}")
         logger.info(f"val_len:{len(val_ds)}, labels:{val_ds.label_count}")
         logger.info(f"Total batch size: {cfg.batch_size * cfg.dist.gpus}")
@@ -568,7 +573,7 @@ def worker(gpu, cfg, out_dir,):
         epoch_time = time.time()
 
         if cfg.dist.distributed:
-            sampler.set_epoch(epoch)
+            train_sampler.set_epoch(epoch)
 
         if (cfg.adv.wait > 0) and (epoch >= cfg.adv.wait):
             cfg.adv.who = adv_who
@@ -659,4 +664,7 @@ def worker(gpu, cfg, out_dir,):
 
 
 if __name__ == "__main__":
+    t = time.time()
     main()
+    e = time.time()
+    print(e-t)

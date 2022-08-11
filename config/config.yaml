@@ -13,6 +13,14 @@ data:
   val_file:   data/p1_val.csv          # relative to data directory
   test_file:  data/p1_test.csv         # relative to data directory
 
+# Common parameters
+seed: 42        # Common seed across all source of randomness
+batch_size: 64  # If distributed training the batch size is multiplied by the number of gpus
+epochs: 5
+workers: 4      # Dataloader number of workers
+threshold: 0.5  # Score threshold, samples with smaller scores are classified as unknowns.
+patience: 0     # Number of epochs to wait before stopping the training. 0 means no early stopping
+
 loss:
   type: entropic  # either {objectosphere, entropic, softmax, BGSoftmax}
   # Entropic Parameters
@@ -27,14 +35,6 @@ opt:
   lr: 1e-3    # Initial learning rate
   decay: 0    # Number of epochs to wait for each learning rate reduction. 0 means no decay
   gamma: 1    # Factor to reduce the learning rate
-
-# Common parameters
-seed: 42        # Common seed across all source of randomness
-batch_size: 64  # If distributed training the batch size is multiplied by the number of gpus
-epochs: 100
-workers: 4      # Dataloader number of workers
-threshold: 0.5  # Score threshold, samples with smaller scores are classified as unknowns.
-patience: 0     # Number of epochs to wait before stopping the training. 0 means no early stopping
 
 # Adversarial Training Parameters
 adv:
