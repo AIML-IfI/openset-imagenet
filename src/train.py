@@ -179,7 +179,6 @@ def train(model, data_loader, optimiser, device, loss_fn, trackers, cfg):
     for images, labels in data_loader:
         model.train()  # To collect batch-norm statistics
         batch_len = labels.shape[0]  # Samples in current batch
-        print(batch_len)
         optimiser.zero_grad(set_to_none=True)
         images = images.to(device)
         labels = labels.to(device)
@@ -664,7 +663,4 @@ def worker(gpu, cfg, out_dir,):
 
 
 if __name__ == "__main__":
-    t = time.time()
     main()
-    e = time.time()
-    print(e-t)
