@@ -11,9 +11,7 @@ from torch.optim import lr_scheduler
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.utils.tensorboard import SummaryWriter
-from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms as tf
 from vast.tools import set_device_gpu
 import hydra
