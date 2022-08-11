@@ -3,14 +3,12 @@ import random
 import time
 from sys import stderr
 from pathlib import Path
-import os
 from collections import OrderedDict, defaultdict
 import numpy as np
 import torch
 from torch.optim import lr_scheduler
-import torch.distributed as dist
-import torch.multiprocessing as mp
 from torch.utils.tensorboard import SummaryWriter
+from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from torchvision import transforms as tf
 from vast.tools import set_device_gpu
@@ -75,9 +73,7 @@ def check_config(cfg):
     Args:
         cfg: Configuration file
     """
-    if (cfg.adv.who != "no_adv") and cfg.dist.distributed:
-        message = "Test Message"
-        raise Exception(message)
+    pass
 
 
 def load_checkpoint(model, checkpoint, opt=None, device="cpu", scheduler=None):
@@ -350,17 +346,8 @@ def main(cfg: DictConfig):
     out_dir = Path(HydraConfig.get().runtime.output_dir)
     check_config(cfg)
 
-    if cfg.dist.distributed:
-        os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = cfg.dist.port
-        #print(f"Distributed training at: {os.environ['MASTER_ADDR']}:{os.environ['MASTER_PORT']}")
-        #print(f"Using {cfg.dist.gpus} gpus")
-        mp.spawn(worker, nprocs=cfg.dist.gpus, args=(cfg,out_dir, ))
-    else:
-        gpu = 0
-        worker(gpu, cfg, out_dir,)
-        # print(Path(hydra.utils.get_original_cwd()))
-        # print(HydraConfig.get().runtime.output_dir)
+    gpu = 0
+    worker(gpu, cfg, out_dir,)
 
 
 def worker(gpu, cfg, out_dir,):
@@ -375,26 +362,17 @@ def worker(gpu, cfg, out_dir,):
     global START_EPOCH
     set_seeds(cfg.seed)
 
-    if cfg.dist.distributed:
-        # initialize process group. For rank needs to be the global rank among all the processes
-        rank = gpu
-        dist.init_process_group(
-            backend="nccl",
-            init_method="env://",
-            world_size=cfg.dist.gpus,
-            rank=rank)
-    else:
-        rank = 0  # Only one rank
+
+    gpu = 0  # Only one gpu
 
     # Configure logger. Log only on first process. Validate only on first process.
-    if rank == 0:
-        msg_format = "{time:DD_MM_HH:mm} {message}"
-        logger.configure(handlers=[{"sink": stderr, "level": "INFO", "format": msg_format}])
-        logger.add(
-            sink= out_dir / cfg.log_name,
-            format=msg_format,
-            level="INFO",
-            mode='w')
+    msg_format = "{time:DD_MM_HH:mm} {message}"
+    logger.configure(handlers=[{"sink": stderr, "level": "INFO", "format": msg_format}])
+    logger.add(
+        sink= out_dir / cfg.log_name,
+        format=msg_format,
+        level="INFO",
+        mode='w')
 
     # Set image transformations
     train_tr = tf.Compose(
@@ -430,21 +408,12 @@ def worker(gpu, cfg, out_dir,):
     else:
         raise FileNotFoundError("train/validation file does not exist")
 
-    # Create data loader
-    if cfg.dist.distributed:
-        train_sampler = DistributedSampler(train_ds, seed=cfg.seed, drop_last=False)
-        #val_sampler = DistributedSampler(val_ds, shuffle=False, drop_last=False)
-    else:
-        train_sampler = None
-        val_sampler = None
-
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.batch_size,
-        shuffle=(train_sampler is None),
+        shuffle=True,
         num_workers=cfg.workers,
-        pin_memory=True,
-        sampler=train_sampler)
+        pin_memory=True)
 
     val_loader = DataLoader(
         val_ds,
@@ -452,7 +421,6 @@ def worker(gpu, cfg, out_dir,):
         shuffle=False,
         num_workers=cfg.workers,
         pin_memory=True,)
-        #sampler = val_sampler)
 
     # setup device
     device = torch.device(f"cuda:{gpu}")
@@ -524,13 +492,9 @@ def worker(gpu, cfg, out_dir,):
                 opt=opt,
                 device=device,
                 scheduler=scheduler)
-        if rank == 0:
-            logger.info(f"Best score of loaded model: {BEST_SCORE:.3f}. 0 is for fine tuning")
-            logger.info(f"Loaded {cfg.checkpoint} at epoch {START_EPOCH}")
+        logger.info(f"Best score of loaded model: {BEST_SCORE:.3f}. 0 is for fine tuning")
+        logger.info(f"Loaded {cfg.checkpoint} at epoch {START_EPOCH}")
 
-    # wrap model in ddp
-    if cfg.dist.distributed:
-        model = DistributedDataParallel(model, device_ids=[gpu], output_device=gpu)
     # Needed to keep initial epsilon when using decay
     start_epsilon = cfg.adv.epsilon
     adv_who = cfg.adv.who  # Store initial adversary
@@ -544,33 +508,27 @@ def worker(gpu, cfg, out_dir,):
 
     # Print info to console and setup summary writer
 
-    writer = None
-    if rank == 0:
-        # Info on console
-        logger.info("============ Data ============")
-        logger.info(f"train_len:{len(train_ds)}, labels:{train_ds.label_count}")
-        logger.info(f"val_len:{len(val_ds)}, labels:{val_ds.label_count}")
-        logger.info(f"Total batch size: {cfg.batch_size * cfg.dist.gpus}")
-        logger.info("========== Training ==========")
-        logger.info(f"Initial epoch: {START_EPOCH}")
-        logger.info(f"Last epoch: {cfg.epochs}")
-        logger.info(f"General mode: {cfg.train_mode}")
-        logger.info(f"Batch size: {cfg.batch_size}")
-        logger.info(f"workers: {cfg.workers}")
-        logger.info(f"Adversary: {cfg.adv.who}")
-        logger.info(f"Adversary mode: {cfg.adv.mode}")
-        logger.info(f"Loss: {cfg.loss.type}")
-        logger.info(f"Optimiser: {cfg.opt.type}")
-        logger.info(f"Learning rate: {cfg.opt.lr}")
-        logger.info(f"Device: {device}")
-        logger.info("Training...")
-        writer = SummaryWriter(log_dir=out_dir)
+    # Info on console
+    logger.info("============ Data ============")
+    logger.info(f"train_len:{len(train_ds)}, labels:{train_ds.label_count}")
+    logger.info(f"val_len:{len(val_ds)}, labels:{val_ds.label_count}")
+    logger.info("========== Training ==========")
+    logger.info(f"Initial epoch: {START_EPOCH}")
+    logger.info(f"Last epoch: {cfg.epochs}")
+    logger.info(f"General mode: {cfg.train_mode}")
+    logger.info(f"Batch size: {cfg.batch_size}")
+    logger.info(f"workers: {cfg.workers}")
+    logger.info(f"Adversary: {cfg.adv.who}")
+    logger.info(f"Adversary mode: {cfg.adv.mode}")
+    logger.info(f"Loss: {cfg.loss.type}")
+    logger.info(f"Optimiser: {cfg.opt.type}")
+    logger.info(f"Learning rate: {cfg.opt.lr}")
+    logger.info(f"Device: {device}")
+    logger.info("Training...")
+    writer = SummaryWriter(log_dir=out_dir)
 
     for epoch in range(START_EPOCH, cfg.epochs):
         epoch_time = time.time()
-
-        if cfg.dist.distributed:
-            train_sampler.set_epoch(epoch)
 
         if (cfg.adv.wait > 0) and (epoch >= cfg.adv.wait):
             cfg.adv.who = adv_who
@@ -613,42 +571,41 @@ def worker(gpu, cfg, out_dir,):
         if cfg.opt.decay > 0:
             scheduler.step()
 
-        if rank == 0:
-            # Logging metrics to tensorboard object
-            if cfg.loss.type == "objectosphere":
-                writer.add_scalar("train/objecto", t_metrics["j_o"].avg, epoch)
-                writer.add_scalar("train/entropic", t_metrics["j_e"].avg, epoch)
-                writer.add_scalar("val/objecto", v_metrics["j_o"].avg, epoch)
-                writer.add_scalar("val/entropic", v_metrics["j_e"].avg, epoch)
-            elif cfg.loss.type in ["entropic", 'softmax', 'BGsoftmax']:
-                writer.add_scalar("train/loss", t_metrics["j"].avg, epoch)
-                writer.add_scalar("val/loss", v_metrics["j"].avg, epoch)
-            if cfg.adv.who != "no_adv":
-                writer.add_scalar("train/adversarial", t_metrics["j_adv"].avg, epoch)
-                writer.add_scalar("val/adversarial", v_metrics["j_adv"].avg, epoch)
-            # Validation metrics
-            writer.add_scalar("val/auc", v_metrics["auc"].avg, epoch)
-            writer.add_scalar("val/conf_kn", v_metrics["conf_kn"].avg, epoch)
-            writer.add_scalar("val/conf_unk", v_metrics["conf_unk"].avg, epoch)
+        # Logging metrics to tensorboard object
+        if cfg.loss.type == "objectosphere":
+            writer.add_scalar("train/objecto", t_metrics["j_o"].avg, epoch)
+            writer.add_scalar("train/entropic", t_metrics["j_e"].avg, epoch)
+            writer.add_scalar("val/objecto", v_metrics["j_o"].avg, epoch)
+            writer.add_scalar("val/entropic", v_metrics["j_e"].avg, epoch)
+        elif cfg.loss.type in ["entropic", 'softmax', 'BGsoftmax']:
+            writer.add_scalar("train/loss", t_metrics["j"].avg, epoch)
+            writer.add_scalar("val/loss", v_metrics["j"].avg, epoch)
+        if cfg.adv.who != "no_adv":
+            writer.add_scalar("train/adversarial", t_metrics["j_adv"].avg, epoch)
+            writer.add_scalar("val/adversarial", v_metrics["j_adv"].avg, epoch)
+        # Validation metrics
+        writer.add_scalar("val/auc", v_metrics["auc"].avg, epoch)
+        writer.add_scalar("val/conf_kn", v_metrics["conf_kn"].avg, epoch)
+        writer.add_scalar("val/conf_unk", v_metrics["conf_unk"].avg, epoch)
 
-            #  training information on console
-            # validation+metrics writer+save model time
-            val_time = time.time() - train_time - epoch_time
-            logger.info(
-                f"ep:{epoch} "
-                f"train:{dict(t_metrics)} "
-                f"val:{dict(v_metrics)} "
-                f"t:{train_time:.1f}s "
-                f"v:{val_time:.1f}s")
+        #  training information on console
+        # validation+metrics writer+save model time
+        val_time = time.time() - train_time - epoch_time
+        logger.info(
+            f"ep:{epoch} "
+            f"train:{dict(t_metrics)} "
+            f"val:{dict(v_metrics)} "
+            f"t:{train_time:.1f}s "
+            f"v:{val_time:.1f}s")
 
-            # save best model and current model
-            ckpt_name = str(out_dir / cfg.name) + "_curr.pth"
-            if curr_score > BEST_SCORE:
-                BEST_SCORE = curr_score
-                ckpt_name = str(out_dir / cfg.name) + "_best.pth"
-                # ckpt_name = f"{cfg.name}_best.pth"  # best model
-                logger.info(f"Saving best model at epoch: {epoch}")
-            save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
+        # save best model and current model
+        ckpt_name = str(out_dir / cfg.name) + "_curr.pth"
+        if curr_score > BEST_SCORE:
+            BEST_SCORE = curr_score
+            ckpt_name = str(out_dir / cfg.name) + "_best.pth"
+            # ckpt_name = f"{cfg.name}_best.pth"  # best model
+            logger.info(f"Saving best model at epoch: {epoch}")
+        save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
 
         # Early stopping
         if cfg.patience > 0:
