@@ -17,6 +17,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms as tf
 from vast.tools import set_device_gpu
 import hydra
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from loguru import logger
 import metrics
@@ -114,14 +115,11 @@ def load_checkpoint(model, checkpoint, opt=None, device="cpu", scheduler=None):
         if scheduler is not None:  # Load scheduler state
             scheduler.load_state_dict(checkpoint["scheduler"])
 
-        logger.info(f"best score of loaded model: {checkpoint['best_score']:.3f}")
-        logger.info(f"loaded {file_path} at epoch {checkpoint['epoch']}")
         del checkpoint
         start_epoch = checkpoint["epoch"]
         best_score = checkpoint["best_score"]
         return start_epoch, best_score
     else:
-        logger.info("Checkpoint file not found")
         raise Exception("Checkpoint file not found")
 
 
@@ -344,35 +342,35 @@ def validate(model, data_loader, device, loss_fn, n_classes, trackers, cfg):
 
 @hydra.main(config_path="../config", config_name="config", version_base="1.2")
 def main(cfg: DictConfig):
-    """ Main function wrapped in hydra.main who does the setup and manages the config file.
+    """Main function wrapped in hydra.main who does the setup and manages the config file.
 
     Args:
         cfg (DictConfig): Configuration file.
     """
     # Setting the logger
-    msg_format = "{time:DD_MM_HH:mm} {message}"
-    logger.configure(
-        handlers=[{"sink": stderr, "level": "INFO", "format": msg_format}])
-    logger.add(cfg.log_name, format=msg_format, level="INFO", mode='w')
 
+    out_dir = Path(HydraConfig.get().runtime.output_dir)
     check_config(cfg)
 
     if cfg.dist.distributed:
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = cfg.dist.port
-        print(f"\nDistributed training at: {os.environ['MASTER_ADDR']}:{os.environ['MASTER_PORT']}")
-        print(f"Using {cfg.dist.gpus} gpus")
-        mp.spawn(worker, nprocs=cfg.dist.gpus, args=(cfg,))
+        #print(f"Distributed training at: {os.environ['MASTER_ADDR']}:{os.environ['MASTER_PORT']}")
+        #print(f"Using {cfg.dist.gpus} gpus")
+        mp.spawn(worker, nprocs=cfg.dist.gpus, args=(cfg,out_dir, ))
     else:
         gpu = 0
-        worker(gpu, cfg)
+        worker(gpu, cfg, out_dir,)
+        # print(Path(hydra.utils.get_original_cwd()))
+        # print(HydraConfig.get().runtime.output_dir)
 
 
-def worker(gpu, cfg):
+def worker(gpu, cfg, out_dir,):
     """ Main worker creates all required instances, trains and validates the model.
     Args:
         gpu(int): GPU index.
         cfg(DictConfig): Configuration dictionary.
+        out_dir(Path): Output directory
     """
     # referencing best score and setting seeds
     global BEST_SCORE
@@ -386,25 +384,31 @@ def worker(gpu, cfg):
             backend="nccl",
             init_method="env://",
             world_size=cfg.dist.gpus,
-            rank=rank
-        )
+            rank=rank)
     else:
         rank = 0  # Only one rank
-        logger.info("Training is using 1 gpu")
+
+    # Configure logger. Log only on first process. Validate only on first process.
+    if rank == 0:
+        msg_format = "{time:DD_MM_HH:mm} {message}"
+        logger.configure(handlers=[{"sink": stderr, "level": "INFO", "format": msg_format}])
+        logger.add(
+            sink= out_dir / cfg.log_name,
+            format=msg_format,
+            level="INFO",
+            mode='w')
 
     # Set image transformations
     train_tr = tf.Compose(
         [tf.Resize(256),
          tf.RandomCrop(224),
          tf.RandomHorizontalFlip(0.5),
-         tf.ToTensor()]
-    )
+         tf.ToTensor()])
 
     val_tr = tf.Compose(
         [tf.Resize(256),
          tf.CenterCrop(224),
-         tf.ToTensor()]
-    )
+         tf.ToTensor()])
 
     # create datasets
     train_file = Path(cfg.data.train_file)
@@ -439,16 +443,14 @@ def worker(gpu, cfg):
         shuffle=(sampler is None),
         num_workers=cfg.workers,
         pin_memory=True,
-        sampler=sampler
-    )
+        sampler=sampler)
 
     val_loader = DataLoader(
         val_ds,
         batch_size=cfg.batch_size,
         shuffle=True,
         num_workers=cfg.workers,
-        pin_memory=True
-    )
+        pin_memory=True)
 
     # setup device
     device = torch.device(f"cuda:{gpu}")
@@ -505,24 +507,24 @@ def worker(gpu, cfg):
     # Resume a training from a checkpoint
     if cfg.checkpoint is not None:
         # Get the relative path of the checkpoint wrt train.py
-        original_wd = Path(hydra.utils.get_original_cwd())
-        checkpoint_path = original_wd / cfg.checkpoint
-        if cfg.train_mode == "finetune":
+        if cfg.train_mode == "finetune": # TODO: Simplify the modes, finetune is not necessary
             START_EPOCH, _ = load_checkpoint(
                 model=model,
-                checkpoint=checkpoint_path,
+                checkpoint=cfg.checkpoint,
                 opt=None,
                 device=device,
                 scheduler=None)
             BEST_SCORE = 0
-            logger.info("Fine-tuning: Setting best score to 0")
         else:
             START_EPOCH, BEST_SCORE = load_checkpoint(
                 model=model,
-                checkpoint=checkpoint_path,
+                checkpoint=cfg.checkpoint,
                 opt=opt,
                 device=device,
                 scheduler=scheduler)
+        if rank == 0:
+            logger.info(f"Best score of loaded model: {BEST_SCORE:.3f}. 0 is for fine tuning")
+            logger.info(f"Loaded {cfg.checkpoint} at epoch {START_EPOCH}")
 
     # wrap model in ddp
     if cfg.dist.distributed:
@@ -539,6 +541,7 @@ def worker(gpu, cfg):
     cfg.epochs = START_EPOCH + cfg.epochs
 
     # Print info to console and setup summary writer
+
     writer = None
     if rank == 0:
         # Info on console
@@ -559,7 +562,7 @@ def worker(gpu, cfg):
         logger.info(f"Learning rate: {cfg.opt.lr}")
         logger.info(f"Device: {device}")
         logger.info("Training...")
-        writer = SummaryWriter(log_dir=os.getcwd())
+        writer = SummaryWriter(log_dir=out_dir)
 
     for epoch in range(START_EPOCH, cfg.epochs):
         epoch_time = time.time()
@@ -637,12 +640,13 @@ def worker(gpu, cfg):
                 f"v:{val_time:.1f}s")
 
             # save best model and current model
-            f_name = f"{cfg.name}_curr.pth"  # current model
+            ckpt_name = str(out_dir / cfg.name) + "_curr.pth"
             if curr_score > BEST_SCORE:
                 BEST_SCORE = curr_score
-                f_name = f"{cfg.name}_best.pth"  # best model
+                ckpt_name = str(out_dir / cfg.name) + "_best.pth"
+                # ckpt_name = f"{cfg.name}_best.pth"  # best model
                 logger.info(f"Saving best model at epoch: {epoch}")
-            save_checkpoint(f_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
+            save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
 
         # Early stopping
         if cfg.patience > 0:
