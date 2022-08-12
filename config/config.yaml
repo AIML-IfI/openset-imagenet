@@ -17,7 +17,7 @@ data:
 seed: 42        # Common seed across all source of randomness
 batch_size: 64  # If distributed training the batch size is multiplied by the number of gpus
 epochs: 10
-workers: 0      # Dataloader number of workers
+workers: 4      # Dataloader number of workers
 threshold: 0.5  # Score threshold, samples with smaller scores are classified as unknowns.
 patience: 0     # Number of epochs to wait before stopping the training. 0 means no early stopping
 

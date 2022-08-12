@@ -79,22 +79,22 @@ def commands(args):
       open(config_file, "w").write(config.dump())
       gpu += 1
 
-#      call = ["train_imagenet.py", config_file, str(protocol), "--output-directory", outdir, "--nice", str(args.nice)]
-      call = [config_file, str(protocol), "--output-directory", outdir, "--nice", str(args.nice)]
+      call = ["train_imagenet.py", config_file, str(protocol), "--output-directory", outdir, "--nice", str(args.nice)]
+#      call = [config_file, str(protocol), "--output-directory", outdir, "--nice", str(args.nice)]
       if args.gpus is not None:
         call += ["--gpu", str(args.gpus[gpu % len(args.gpus)])]
 
       print("Running experiment: " + " ".join(call))
       yield call
 
-#def train_one(call):
-#  subprocess.call(call)
+def train_one(call):
+  subprocess.call(call)
 
 def main():
   args = get_args()
   if args.parallel:
     # we run in parallel
-    with multiprocessing.Pool(len(args.gpus), maxtasksperchild=1) as pool:
+    with multiprocessing.pool.ThreadPool(len(args.gpus)) as pool:
       pool.map(train_one, commands(args))
   else:
     for c in commands(args):
