@@ -21,7 +21,7 @@ setup(
 
     # This line is required for any distutils based packaging.
     # It will find all package-data inside the 'bob' directory.
-    packages = find_packages('openset_imagenet'),
+    packages = find_packages('.'),
     include_package_data = True,
 
     # This line defines which packages should be installed when you "install"
@@ -49,9 +49,9 @@ setup(
 
       # scripts should be declared using this entry:
       'console_scripts' : [
-        'train_imagenet.py     = openset_imagenet.script.train.main',
-        'evaluate_imagenet.py  = openset_imagenet.script.evaluate.main',
-        'protocols_imagenet.py = openset_imagenet.script.protocols.main'
+        'train_imagenet.py     = openset_imagenet.script.train:main',
+        'evaluate_imagenet.py  = openset_imagenet.script.evaluate:main',
+        'protocols_imagenet.py = openset_imagenet.script.protocols:main'
       ],
     },
 

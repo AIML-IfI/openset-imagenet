@@ -1,5 +1,6 @@
 import csv
 from pathlib import Path
+import os
 from robustness.tools.imagenet_helpers import ImageNetHierarchy, common_superclass_wnid
 from sklearn.model_selection import train_test_split
 
@@ -210,6 +211,7 @@ class OpenSetProtocol:
             path(Path): File path
             data(Iterable): Data iterable
         """
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w', encoding="utf-8") as file_:
             writer = csv.writer(file_)
             writer.writerows(data)

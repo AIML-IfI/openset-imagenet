@@ -10,14 +10,13 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from vast.tools import set_device_gpu
-from omegaconf import DictConfig
+from vast.tools import set_device_gpu, set_device_cpu, device
 from loguru import logger
 from .metrics import confidence, auc_score_binary, auc_score_multiclass, predict_objectosphere
 from .dataset import ImagenetDataset
 from .model import ResNet50
 from .losses import AverageMeter, EarlyStopping, EntropicLoss, ObjectoLoss
-
+import tqdm
 
 
 def set_seeds(seed):
@@ -41,7 +40,7 @@ def save_checkpoint(f_name, model, epoch, opt, best_score_, scheduler=None):
         f_name(str): File name.
         model(torch module): Pytorch model.
         epoch(int): Current epoch.
-        opt(torch optimiser): Current optimiser.
+        opt(torch optimizer): Current optimizer.
         best_score_(float): Current best score.
         scheduler(torch lr_scheduler): Pytorch scheduler.
     """
@@ -68,7 +67,7 @@ def load_checkpoint(model, checkpoint, opt=None, device="cpu", scheduler=None):
     Args:
         model (torch nn.module): Requires a model to load the state dictionary.
         checkpoint (Path): File path.
-        opt (torch optimiser): An optimiser to load the state dictionary. Defaults to None.
+        opt (torch optimizer): An optimizer to load the state dictionary. Defaults to None.
         device (str): Device to load the checkpoint. Defaults to 'cpu'.
         scheduler (torch lr_scheduler): Learning rate scheduler. Defaults to None.
     """
@@ -135,14 +134,13 @@ def filter_correct(logits, targets, threshold):
         return torch.nonzero(correct, as_tuple=True)
 
 
-def train(model, data_loader, optimiser, device, loss_fn, trackers, cfg):
+def train(model, data_loader, optimizer, loss_fn, trackers, cfg):
     """ Main training loop.
 
     Args:
         model (torch.model): Model
         data_loader (torch.DataLoader): DataLoader
-        optimiser (torch optimiser): Optimiser
-        device (cuda): cuda id
+        optimizer (torch optimizer): optimizer
         loss_fn: Loss function
         trackers: Dictionary of trackers
         cfg: General configuration structure
@@ -154,17 +152,12 @@ def train(model, data_loader, optimiser, device, loss_fn, trackers, cfg):
     j = None
 
     # training loop
-    for images, labels in data_loader:
+    for images, labels in tqdm.tqdm(data_loader):
         model.train()  # To collect batch-norm statistics
         batch_len = labels.shape[0]  # Samples in current batch
-        optimiser.zero_grad(set_to_none=True)
-        images = images.to(device)
-        labels = labels.to(device)
-
-        # If the gradient with respect to the input is needed
-        if cfg.adv.who == "fgsm":
-            images.requires_grad_()
-            images.grad = None
+        optimizer.zero_grad()
+        images = device(images)
+        labels = device(labels)
 
         # Forward pass
         logits, features = model(images)
@@ -179,69 +172,14 @@ def train(model, data_loader, optimiser, device, loss_fn, trackers, cfg):
             trackers["j"].update(j.item(), batch_len)
         # Backward pass
         j.backward()
-
-        if cfg.adv.who == "no_adv":  # If training without adversarial samples
-            optimiser.step()
-        else:
-            # Steps:
-            #   Select samples to perturb
-            #   Create adv samples
-            #   Calculate adv loss
-            #   Backward pass
-            model.eval()  # To stop batch normalisation statistics
-
-            # Get the candidates to adversarial samples
-            num_adv_samples = 0
-            correct_idx = None
-            # Perturb corrected classified samples
-            if cfg.adv.mode == "filter":
-                correct_idx = filter_correct(logits=logits, targets=labels, threshold=cfg.threshold)
-                num_adv_samples = len(correct_idx[0])
-            elif cfg.adv.mode == "full":  # Perturb all samples
-                correct_idx = torch.arange(batch_len, requires_grad=False, device=device)
-                num_adv_samples = len(correct_idx)
-            trackers["num_adv"].update(num_adv_samples)
-
-            # Create perturbed samples
-            if num_adv_samples > 0:
-                correct_im = images[correct_idx]
-                if cfg.adv.who == "gaussian":
-                    adv_im, adv_label = add_gaussian_noise(
-                        image=correct_im,
-                        loc=0,
-                        std=cfg.adv.std,
-                        device=device)
-                elif cfg.adv.who == "random":
-                    adv_im, adv_label = add_random_noise(
-                        image=correct_im,
-                        epsilon=cfg.adv.epsilon,
-                        device=device)
-                elif cfg.adv.who == "fgsm":
-                    correct_im_grad = images.grad[correct_idx]
-                    adv_im, adv_label = fgsm_attack(
-                        image=correct_im,
-                        epsilon=cfg.adv.epsilon,
-                        grad=correct_im_grad,
-                        device=device)
-
-                # forward pass with adversarial samples
-                logits, features = model(adv_im)
-                j_a = None
-                if cfg.loss.type == "objectosphere":
-                    j_a = loss_fn(features, logits, adv_label, cfg.loss.alpha)
-                elif cfg.loss.type == "entropic":
-                    j_a = loss_fn(logits, adv_label)
-                trackers["j_adv"].update(j_a.item(), num_adv_samples)
-                j_a.backward()
-            optimiser.step()
+        optimizer.step()
 
 
-def validate(model, data_loader, device, loss_fn, n_classes, trackers, cfg):
+def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
     """ Validation loop.
     Args:
         model (torch.model): Model
         data_loader (torch dataloader): DataLoader
-        device (cuda): cuda id
         loss_fn: Loss function
         n_classes(int): Total number of classes
         trackers(dict): Dictionary of trackers
@@ -254,13 +192,13 @@ def validate(model, data_loader, device, loss_fn, n_classes, trackers, cfg):
     model.eval()
     with torch.no_grad():
         data_len = len(data_loader.dataset)  # size of dataset
-        all_targets = torch.empty(data_len, device=device, dtype=torch.int64).detach()
-        all_scores = torch.empty((data_len, n_classes), device=device).detach()
+        all_targets = device(torch.empty(data_len, dtype=torch.int64, requres_grad=False))
+        all_scores = device(torch.empty((data_len, n_classes), requires_grad=False))
 
         for i, (images, labels) in enumerate(data_loader):
             batch_len = labels.shape[0]  # current batch size, last batch has different value
-            images = images.to(device)
-            labels = labels.to(device)
+            images = device(images)
+            labels = device(labels)
             logits, features = model(images)
             scores = torch.nn.functional.softmax(logits, dim=1)
 
@@ -390,8 +328,11 @@ def worker(gpu, cfg, out_dir,protocol):
         pin_memory=True,)
 
     # setup device
-    device = torch.device(f"cuda:{gpu}")
-    set_device_gpu(index=gpu)
+    if gpu is not None:
+        set_device_gpu(index=gpu)
+    else:
+        logger.warn("No GPU device selected, training will be extremely slow")
+        set_device_cpu()
 
     # Callbacks
     early_stopping = None
@@ -414,16 +355,15 @@ def worker(gpu, cfg, out_dir,protocol):
     elif cfg.loss.type == "entropic":
         loss = EntropicLoss(n_classes, cfg.loss.w)
     elif cfg.loss.type == "softmax":
-        loss = torch.nn.CrossEntropyLoss().to(device)
+        loss = torch.nn.CrossEntropyLoss()
     elif cfg.loss.type == "BGsoftmax":
-        class_weights = train_ds.calculate_class_weights().to(device)
-        loss = torch.nn.CrossEntropyLoss(weight=class_weights).to(device)
+        class_weights = device(train_ds.calculate_class_weights())
+        loss = torch.nn.CrossEntropyLoss(weight=class_weights)
 
     # Create the model
     model = ResNet50(fc_layer_dim=n_classes,
                      out_features=n_classes,
                      logit_bias=False)
-    model.to(device)
 
     # Create optimizer
     if cfg.opt.type == "sgd":
@@ -449,7 +389,6 @@ def worker(gpu, cfg, out_dir,protocol):
                 model=model,
                 checkpoint=cfg.checkpoint,
                 opt=None,
-                device=device,
                 scheduler=None)
             BEST_SCORE = 0
         else:
@@ -457,18 +396,11 @@ def worker(gpu, cfg, out_dir,protocol):
                 model=model,
                 checkpoint=cfg.checkpoint,
                 opt=opt,
-                device=device,
                 scheduler=scheduler)
         logger.info(f"Best score of loaded model: {BEST_SCORE:.3f}. 0 is for fine tuning")
         logger.info(f"Loaded {cfg.checkpoint} at epoch {START_EPOCH}")
 
-    # Needed to keep initial epsilon when using decay
-    start_epsilon = cfg.adv.epsilon
-    adv_who = cfg.adv.who  # Store initial adversary
-    # Checks if train the model without adversarial samples for a number of epochs then add
-    # adversarial samples.
-    if cfg.adv.wait > 0:
-        cfg.adv.who = "no_adv"
+    device(model)
 
     # Set the final epoch
     cfg.epochs = START_EPOCH + cfg.epochs
@@ -485,37 +417,21 @@ def worker(gpu, cfg, out_dir,protocol):
     logger.info(f"General mode: {cfg.train_mode}")
     logger.info(f"Batch size: {cfg.batch_size}")
     logger.info(f"workers: {cfg.workers}")
-    logger.info(f"Adversary: {cfg.adv.who}")
-    logger.info(f"Adversary mode: {cfg.adv.mode}")
     logger.info(f"Loss: {cfg.loss.type}")
-    logger.info(f"Optimiser: {cfg.opt.type}")
+    logger.info(f"optimizer: {cfg.opt.type}")
     logger.info(f"Learning rate: {cfg.opt.lr}")
-    logger.info(f"Device: {device}")
+    logger.info(f"Device: {gpu}")
     logger.info("Training...")
     writer = SummaryWriter(log_dir=out_dir)
 
     for epoch in range(START_EPOCH, cfg.epochs):
         epoch_time = time.time()
 
-        if (cfg.adv.wait > 0) and (epoch >= cfg.adv.wait):
-            cfg.adv.who = adv_who
-
-        # calculate epsilon
-        if (cfg.adv.who in ["fgsm", "random"]) and 0 < cfg.adv.mu < 1 and cfg.adv.decay > 0:
-            cfg.adv.epsilon = decay_epsilon(
-                start_eps=start_epsilon,
-                mu=cfg.adv.mu,
-                curr_epoch=epoch,
-                wait_epochs=cfg.adv.decay
-            )
-            logger.info(f"epsilon:{cfg.adv.epsilon:.4f}")
-
         # training loop
         train(
             model=model,
             data_loader=train_loader,
-            optimiser=opt,
-            device=device,
+            optimizer=opt,
             loss_fn=loss,
             trackers=t_metrics,
             cfg=cfg)
@@ -526,7 +442,6 @@ def worker(gpu, cfg, out_dir,protocol):
         validate(
             model=model,
             data_loader=val_loader,
-            device=device,
             loss_fn=loss,
             n_classes=n_classes,
             trackers=v_metrics,

@@ -10,7 +10,7 @@ def get_args():
     Returns:
         parser: arguments structure
     """
-    parser = argparse.ArgumentParser("Imagenet Protocols Parameters")
+    parser = argparse.ArgumentParser("Imagenet Protocols Parameters", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         "--prot",
         type=int,
@@ -30,7 +30,7 @@ def get_args():
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=".",
+        default="protocols",
         help="Directory to save protocol files")
     parser.add_argument(
         "--seed",

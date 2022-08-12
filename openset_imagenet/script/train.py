@@ -2,6 +2,7 @@
 import argparse
 import openset_imagenet.train
 import pathlib
+import os
 
 
 def get_args():
@@ -22,7 +23,7 @@ def get_args():
         help="Open set protocol: 1, 2 or 3"
     )
     parser.add_argument(
-        "--output-diriectory", "-o",
+        "--output-directory", "-o",
         type=pathlib.Path,
         default=".",
         help="Directory to save protocol files"
@@ -36,7 +37,16 @@ def get_args():
         help = "Select the GPU index that you have. You can specify an index or not. If not, 0 is assumed. If not selected, we will train on CPU only (not recommended)"
     )
 
+    parser.add_argument(
+        "--nice",
+        type=int,
+        default = 20,
+        help = "Select Priority Level"
+    )
+
     args = parser.parse_args()
+
+    os.nice(args.nice)
     return args
 
 
@@ -44,6 +54,7 @@ def main():
 
     args = get_args()
     config = openset_imagenet.util.load_yaml(args.configuration)
+    print(config.dump())
 
     openset_imagenet.train.worker(args.gpu, config, args.output_directory, args.protocol)
 

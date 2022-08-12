@@ -19,6 +19,15 @@ class NameSpace:
         config = {name : NameSpace(value) if isinstance(value, dict) else value for name, value in config.items()}
         self.__dict__.update(config)
 
+    def __repr__(self):
+        return "\n".join(k+": " + str(v) for k,v in vars(self).items())
+
+    def dump(self, indent=4):
+        return yaml.dump(self.dict(), indent=indent)
+
+    def dict(self):
+        return {k: v.dict() if isinstance(v, NameSpace) else v for k,v in vars(self).items()}
+
 def load_yaml(yaml_file):
     """Loads a YAML file into a nested namespace object"""
     config = yaml.safe_load(open(yaml_file, 'r'))
