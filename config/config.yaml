@@ -1,7 +1,6 @@
 
 ---
 # General Parameters
-name: experiment
 checkpoint:             # Relative path to checkpoint
 log_name: training.log  # name of the file with training info
 train_mode: train       # either: {train, finetune}
@@ -46,7 +45,7 @@ adv:
   wait: 0       # Number epochs to train only with known samples, before adding adversarial samples
   mode: filter  # Selection of images to be perturbed:
                 # filter: Generate negatives perturbing only correctly classified images in a batch
-                # full: Generate negatives perturbing all images in a batch 
+                # full: Generate negatives perturbing all images in a batch
   epsilon: 0.0  # Magnitude of the initial perturbation. Applies for {fgsm,random}
   std: 0.0      # Standard deviation of the perturbation Applies only for {gaussian}
   # Parameters to decay epsilon
@@ -56,13 +55,5 @@ adv:
 # Parameters for Distributed Data Parallel training
 dist:
   distributed: True  # False to use only one GPU # TODO: delete this option
-  gpus: 2            # Number of GPUS to use 
+  gpus: 2            # Number of GPUS to use
   port: "8889"        # Default port to communicate.
-
-# Hydra Parameters
-hydra:
-  run:
-    dir: ./outputs/${name}
-defaults:
-  - override hydra/job_logging: none
-

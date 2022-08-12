@@ -1,7 +1,7 @@
 /.idea/*
 /outputs/*
 /.vscode/*
-/src/__pycache__/*
+**/__pycache__
 /analysis/fig/*
-src/protocols/__pycache__/*
 data/*
+openset_imagenet.egg-info

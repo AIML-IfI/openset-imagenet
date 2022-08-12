@@ -11,6 +11,20 @@ from matplotlib.ticker import LogLocator, NullFormatter
 from matplotlib import colors
 import matplotlib.cm as cm
 
+import yaml
+
+class NameSpace:
+    def __init__(self, config):
+        # recurse through config
+        config = {name : NameSpace(value) if isinstance(value, dict) else value for name, value in config.items()}
+        self.__dict__.update(config)
+
+def load_yaml(yaml_file):
+    """Loads a YAML file into a nested namespace object"""
+    config = yaml.safe_load(open(yaml_file, 'r'))
+    return NameSpace(config)
+
+
 
 def dataset_info(protocol_data_dir):
     """ Produces data frame with basic info about the dataset. The data dir must contain train.csv, validation.csv

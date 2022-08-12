@@ -1,7 +1,5 @@
-"""Open set protocols V2"""
-from pathlib import Path
-import argparse
 import csv
+from pathlib import Path
 from robustness.tools.imagenet_helpers import ImageNetHierarchy, common_superclass_wnid
 from sklearn.model_selection import train_test_split
 
@@ -278,51 +276,3 @@ class OpenSetProtocol:
         print(f"Known classes: {len(self.kn_classes)}")
         print(f"Negative classes: {len(self.neg_classes)}")
         print(f"Unknown classes: {len(self.unk_classes)} \n")
-
-
-def get_args():
-    """ Arguments handler.
-
-    Returns:
-        parser: arguments structure
-    """
-    parser = argparse.ArgumentParser("Imagenet Protocols Parameters")
-    parser.add_argument(
-        "--prot",
-        type=int,
-        default=1,
-        help="Open set protocol: 1, 2 or 3")
-    parser.add_argument(
-        "--imagenet_dir",
-        type=Path,
-        default="/local/scratch/datasets/ImageNet/ILSVRC2012/",
-        help="Path to imagenet ILSVRC2012 dataset, it must contain train and val folders")
-    parser.add_argument(
-        "--metadata_dir",
-        type=Path,
-        default="/local/scratch/datasets/ImageNet/ILSVRC2012/robustness",
-        help="Directory of metadata files (imagenet_class_index.json, wordnet.is_a.txt, words.txt)")
-    parser.add_argument(
-        "--out_dir",
-        type=Path,
-        default=".",
-        help="Directory to save protocol files")
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Integer random seed")
-
-    parser = parser.parse_args()
-    return parser
-
-
-if __name__ == '__main__':
-    args = get_args()
-    protocol = OpenSetProtocol(
-        imagenet_dir=args.imagenet_dir,
-        metadata_path=args.metadata_dir,
-        protocol_num=args.prot)
-    protocol.create_dataset(random_state=args.seed)
-    protocol.print_data()
-    protocol.save_datasets_to_csv(args.out_dir)

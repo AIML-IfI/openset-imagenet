@@ -1,8 +1,7 @@
-""" Training script for Open-set Classification on Imagenet"""
 import random
 import time
-from sys import stderr
-from pathlib import Path
+import sys
+import pathlib
 from collections import OrderedDict, defaultdict
 import numpy as np
 import torch
@@ -10,22 +9,15 @@ from torch.optim import lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
-from torchvision import transforms as tf
+from torchvision import transforms
 from vast.tools import set_device_gpu
-import hydra
-from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from loguru import logger
-import metrics
-from dataset import ImagenetDataset
-from model import ResNet50
-from losses import AverageMeter, EarlyStopping, EntropicLoss, ObjectoLoss
-from adversary import add_random_noise, add_gaussian_noise, fgsm_attack, decay_epsilon
+from .metrics import confidence, auc_score_binary, auc_score_multiclass, predict_objectosphere
+from .dataset import ImagenetDataset
+from .model import ResNet50
+from .losses import AverageMeter, EarlyStopping, EntropicLoss, ObjectoLoss
 
-
-# Global objects:
-BEST_SCORE = 0.0    # Best validation score
-START_EPOCH = 0     # Initial training epoch
 
 
 def set_seeds(seed):
@@ -39,6 +31,7 @@ def set_seeds(seed):
     np.random.seed(seed)
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
+
 
 
 def save_checkpoint(f_name, model, epoch, opt, best_score_, scheduler=None):
@@ -65,15 +58,6 @@ def save_checkpoint(f_name, model, epoch, opt, best_score_, scheduler=None):
     if scheduler is not None:
         data["scheduler"] = scheduler.state_dict()
     torch.save(data, f_name)
-
-
-def check_config(cfg):
-    """ Placeholder to perform parameter checks.
-
-    Args:
-        cfg: Configuration file
-    """
-    pass
 
 
 def load_checkpoint(model, checkpoint, opt=None, device="cpu", scheduler=None):
@@ -305,12 +289,12 @@ def validate(model, data_loader, device, loss_fn, n_classes, trackers, cfg):
         min_unk_score = None
         if cfg.loss.type == "softmax":
             min_unk_score = 0.0
-            auc = metrics.auc_score_multiclass(all_targets, all_scores)
+            auc = auc_score_multiclass(all_targets, all_scores)
 
         elif cfg.loss.type in ["entropic", "objectosphere"]:
             min_unk_score = 1 / n_classes
             # max_kn_scores = torch.max(all_scores, dim=1)[0]
-            auc = metrics.auc_score_binary(all_targets, all_scores)
+            auc = auc_score_binary(all_targets, all_scores)
 
         elif cfg.loss.type == "BGsoftmax":
             min_unk_score = 0.0
@@ -321,9 +305,9 @@ def validate(model, data_loader, device, loss_fn, n_classes, trackers, cfg):
             biggest_label = data_loader.dataset.unique_classes[-1]
             all_targets[all_targets == biggest_label] = -1
 
-            auc = metrics.auc_score_binary(all_targets, all_scores)
+            auc = auc_score_binary(all_targets, all_scores)
 
-        kn_conf, kn_count, neg_conf, neg_count = metrics.confidence(
+        kn_conf, kn_count, neg_conf, neg_count = confidence(
             scores=all_scores,
             target_labels=all_targets,
             offset=min_unk_score)
@@ -334,21 +318,6 @@ def validate(model, data_loader, device, loss_fn, n_classes, trackers, cfg):
             trackers["conf_unk"].update(neg_conf, neg_count)
 
 
-@hydra.main(config_path="../config", config_name="config", version_base="1.2")
-def main(cfg: DictConfig):
-    """Main function wrapped in hydra.main who does the setup and manages the config file.
-
-    Args:
-        cfg (DictConfig): Configuration file.
-    """
-    # Setting the logger
-
-    out_dir = Path(HydraConfig.get().runtime.output_dir)
-    check_config(cfg)
-
-    gpu = 0
-    worker(gpu, cfg, out_dir,)
-
 
 def worker(gpu, cfg, out_dir,):
     """ Main worker creates all required instances, trains and validates the model.
@@ -358,16 +327,14 @@ def worker(gpu, cfg, out_dir,):
         out_dir(Path): Output directory
     """
     # referencing best score and setting seeds
-    global BEST_SCORE
-    global START_EPOCH
     set_seeds(cfg.seed)
 
-
-    gpu = 0  # Only one gpu
+    BEST_SCORE = 0.0    # Best validation score
+    START_EPOCH = 0     # Initial training epoch
 
     # Configure logger. Log only on first process. Validate only on first process.
     msg_format = "{time:DD_MM_HH:mm} {message}"
-    logger.configure(handlers=[{"sink": stderr, "level": "INFO", "format": msg_format}])
+    logger.configure(handlers=[{"sink": sys.stderr, "level": "INFO", "format": msg_format}])
     logger.add(
         sink= out_dir / cfg.log_name,
         format=msg_format,
@@ -375,20 +342,20 @@ def worker(gpu, cfg, out_dir,):
         mode='w')
 
     # Set image transformations
-    train_tr = tf.Compose(
-        [tf.Resize(256),
-         tf.RandomCrop(224),
-         tf.RandomHorizontalFlip(0.5),
-         tf.ToTensor()])
+    train_tr = transforms.Compose(
+        [transforms.Resize(256),
+         transforms.RandomCrop(224),
+         transforms.RandomHorizontalFlip(0.5),
+         transforms.ToTensor()])
 
-    val_tr = tf.Compose(
-        [tf.Resize(256),
-         tf.CenterCrop(224),
-         tf.ToTensor()])
+    val_tr = transforms.Compose(
+        [transforms.Resize(256),
+         transforms.CenterCrop(224),
+         transforms.ToTensor()])
 
     # create datasets
-    train_file = Path(cfg.data.train_file)
-    val_file = Path(cfg.data.val_file)
+    train_file = pathlib.Path(cfg.data.train_file)
+    val_file = pathlib.Path(cfg.data.val_file)
 
     if train_file.exists() and val_file.exists():
         train_ds = ImagenetDataset(
@@ -615,7 +582,3 @@ def worker(gpu, cfg, out_dir,):
                 break
 
     logger.info("Training finished")
-
-
-if __name__ == "__main__":
-    main()

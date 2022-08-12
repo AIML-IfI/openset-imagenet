@@ -1,6 +1,6 @@
 """ Various functions to calculate confidence and AUC."""
 import numpy as np
-from sklearn import metrics
+import sklearn.metrics
 import torch
 import torch.nn.functional as f  # It was torch.functional as f
 
@@ -81,7 +81,7 @@ def auc_score_binary(target_labels, pred_scores, unk_class=-1):
     known = target_labels != unk_class
     target_labels[known] = 1
     target_labels[~known] = -1
-    return metrics.roc_auc_score(target_labels, max_scores)
+    return sklearn.metrics.roc_auc_score(target_labels, max_scores)
 
 
 def auc_score_multiclass(target_labels, pred_scores):
@@ -99,4 +99,4 @@ def auc_score_multiclass(target_labels, pred_scores):
     if torch.is_tensor(pred_scores):
         pred_scores = pred_scores.cpu().detach().numpy()
 
-    return metrics.roc_auc_score(target_labels, pred_scores, multi_class="ovr")
+    return sklearn.metrics.roc_auc_score(target_labels, pred_scores, multi_class="ovr")
