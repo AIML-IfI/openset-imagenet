@@ -1,17 +1,17 @@
 """ Training script for Open-set Classification on Imagenet"""
 import argparse
-import openset_imagenet.train
+import openset_imagenet
 import pathlib
 import os
 
 
-def get_args():
+def get_args(command_line_options = None):
     """ Arguments handler.
 
     Returns:
         parser: arguments structure
     """
-    parser = argparse.ArgumentParser("Imagenet Training Parameters")
+    parser = argparse.ArgumentParser("Imagenet Training Parameters", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         "configuration",
         type = pathlib.Path,
@@ -20,13 +20,14 @@ def get_args():
     parser.add_argument(
         "protocol",
         type=int,
+        choices = (1,2,3),
         help="Open set protocol: 1, 2 or 3"
     )
     parser.add_argument(
         "--output-directory", "-o",
         type=pathlib.Path,
         default=".",
-        help="Directory to save protocol files"
+        help="Directory to store the trained models into"
     )
     parser.add_argument(
         "--gpu", "-g",
@@ -44,21 +45,22 @@ def get_args():
         help = "Select Priority Level"
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(command_line_options)
 
     os.nice(args.nice)
     return args
 
 
-def main():
+def main(command_line_options = None):
 
-    args = get_args()
+    args = get_args(command_line_options)
     config = openset_imagenet.util.load_yaml(args.configuration)
-    print(config.dump())
+    if args.gpu:
+        config.gpu = args.gpu
+    config.protocol = args.protocol
+    config.output_directory = args.output_directory
 
-    openset_imagenet.train.worker(args.gpu, config, args.output_directory, args.protocol)
-
-
+    openset_imagenet.train.worker(config)
 
 
 if __name__ == "__main__":

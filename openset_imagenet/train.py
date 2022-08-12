@@ -152,7 +152,9 @@ def train(model, data_loader, optimizer, loss_fn, trackers, cfg):
     j = None
 
     # training loop
-    for images, labels in tqdm.tqdm(data_loader):
+    if not cfg.parallel:
+        data_loader = tqdm.tqdm(data_loader)
+    for images, labels in data_loader:
         model.train()  # To collect batch-norm statistics
         batch_len = labels.shape[0]  # Samples in current batch
         optimizer.zero_grad()
@@ -167,7 +169,7 @@ def train(model, data_loader, optimizer, loss_fn, trackers, cfg):
             j = loss_fn(features, logits, labels, cfg.loss.alpha)
             trackers["j_o"].update(loss_fn.objecto_value, batch_len)
             trackers["j_e"].update(loss_fn.entropic_value, batch_len)
-        elif cfg.loss.type in ["BGsoftmax", "entropic", "softmax"]:
+        elif cfg.loss.type in ["garbage", "entropic", "softmax"]:
             j = loss_fn(logits, labels)
             trackers["j"].update(j.item(), batch_len)
         # Backward pass
@@ -192,7 +194,7 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
     model.eval()
     with torch.no_grad():
         data_len = len(data_loader.dataset)  # size of dataset
-        all_targets = device(torch.empty(data_len, dtype=torch.int64, requres_grad=False))
+        all_targets = device(torch.empty((data_len,), dtype=torch.int64, requires_grad=False))
         all_scores = device(torch.empty((data_len, n_classes), requires_grad=False))
 
         for i, (images, labels) in enumerate(data_loader):
@@ -206,7 +208,7 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
                 j = loss_fn(features, logits, labels, cfg.loss.alpha)
                 trackers["j_o"].update(loss_fn.objecto_value, batch_len)
                 trackers["j_e"].update(loss_fn.entropic_value, batch_len)
-            elif cfg.loss.type in ["BGsoftmax", "entropic", "softmax"]:
+            elif cfg.loss.type in ["garbage", "entropic", "softmax"]:
                 j = loss_fn(logits, labels)
                 trackers["j"].update(j.item(), batch_len)
 
@@ -221,7 +223,7 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
         # Entropic: metric: Binary AUC (kn vs unk)
         #           score: does not have unknown class
         #           target: unknown class -1
-        # BGsoftmax: metric: Binary AUC (kn vs unk)
+        # garbage: metric: Binary AUC (kn vs unk)
         #           score: has additional class for unknown samples, remove it
         #           target: unknown class -1
         min_unk_score = None
@@ -234,7 +236,7 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
             # max_kn_scores = torch.max(all_scores, dim=1)[0]
             auc = auc_score_binary(all_targets, all_scores)
 
-        elif cfg.loss.type == "BGsoftmax":
+        elif cfg.loss.type == "garbage":
             min_unk_score = 0.0
             # Removes last column of scores to use only known classes
             all_scores = all_scores[:, :-1]
@@ -257,12 +259,10 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
 
 
 
-def worker(gpu, cfg, out_dir,protocol):
+def worker(cfg):
     """ Main worker creates all required instances, trains and validates the model.
     Args:
-        gpu(int): GPU index.
-        cfg(DictConfig): Configuration dictionary.
-        out_dir(Path): Output directory
+        cfg (NameSpace): Configuration of the experiment
     """
     # referencing best score and setting seeds
     set_seeds(cfg.seed)
@@ -271,10 +271,11 @@ def worker(gpu, cfg, out_dir,protocol):
     START_EPOCH = 0     # Initial training epoch
 
     # Configure logger. Log only on first process. Validate only on first process.
-    msg_format = "{time:DD_MM_HH:mm} {message}"
+#    msg_format = "{time:DD_MM_HH:mm} {message}"
+    msg_format = "{time:DD_MM_HH:mm} {name} {level}: {message}"
     logger.configure(handlers=[{"sink": sys.stderr, "level": "INFO", "format": msg_format}])
     logger.add(
-        sink= out_dir / cfg.log_name,
+        sink= cfg.output_directory / cfg.log_name,
         format=msg_format,
         level="INFO",
         mode='w')
@@ -292,24 +293,31 @@ def worker(gpu, cfg, out_dir,protocol):
          transforms.ToTensor()])
 
     # create datasets
-    train_file = pathlib.Path(cfg.data.train_file.format(protocol))
-    val_file = pathlib.Path(cfg.data.val_file.format(protocol))
+    train_file = pathlib.Path(cfg.data.train_file.format(cfg.protocol))
+    val_file = pathlib.Path(cfg.data.val_file.format(cfg.protocol))
 
     if train_file.exists() and val_file.exists():
         train_ds = ImagenetDataset(
             csv_file=train_file,
             imagenet_path=cfg.data.imagenet_path,
-            transformation=train_tr)
+            transform=train_tr
+        )
         val_ds = ImagenetDataset(
             csv_file=val_file,
             imagenet_path=cfg.data.imagenet_path,
-            transformation=val_tr)
+            transform=val_tr
+        )
 
         # If using garbage class, replaces label -1 to maximum label + 1
-        if cfg.loss.type == "BGsoftmax":
+        if cfg.loss.type == "garbage":
             # Only change the unknown label of the training dataset
             train_ds.replace_negative_label()
             val_ds.replace_negative_label()
+        elif cfg.loss.type == "softmax":
+            # Remove all unknown labels
+            train_ds.replace_negative_label()
+            val_ds.replace_negative_label()
+
     else:
         raise FileNotFoundError("train/validation file does not exist")
 
@@ -328,10 +336,10 @@ def worker(gpu, cfg, out_dir,protocol):
         pin_memory=True,)
 
     # setup device
-    if gpu is not None:
-        set_device_gpu(index=gpu)
+    if cfg.gpu is not None:
+        set_device_gpu(index=cfg.gpu)
     else:
-        logger.warn("No GPU device selected, training will be extremely slow")
+        logger.warning("No GPU device selected, training will be extremely slow")
         set_device_cpu()
 
     # Callbacks
@@ -356,7 +364,7 @@ def worker(gpu, cfg, out_dir,protocol):
         loss = EntropicLoss(n_classes, cfg.loss.w)
     elif cfg.loss.type == "softmax":
         loss = torch.nn.CrossEntropyLoss()
-    elif cfg.loss.type == "BGsoftmax":
+    elif cfg.loss.type == "garbage":
         class_weights = device(train_ds.calculate_class_weights())
         loss = torch.nn.CrossEntropyLoss(weight=class_weights)
 
@@ -420,9 +428,9 @@ def worker(gpu, cfg, out_dir,protocol):
     logger.info(f"Loss: {cfg.loss.type}")
     logger.info(f"optimizer: {cfg.opt.type}")
     logger.info(f"Learning rate: {cfg.opt.lr}")
-    logger.info(f"Device: {gpu}")
+    logger.info(f"Device: {cfg.gpu}")
     logger.info("Training...")
-    writer = SummaryWriter(log_dir=out_dir)
+    writer = SummaryWriter(log_dir=cfg.output_directory)
 
     for epoch in range(START_EPOCH, cfg.epochs):
         epoch_time = time.time()
@@ -459,12 +467,9 @@ def worker(gpu, cfg, out_dir,protocol):
             writer.add_scalar("train/entropic", t_metrics["j_e"].avg, epoch)
             writer.add_scalar("val/objecto", v_metrics["j_o"].avg, epoch)
             writer.add_scalar("val/entropic", v_metrics["j_e"].avg, epoch)
-        elif cfg.loss.type in ["entropic", 'softmax', 'BGsoftmax']:
+        elif cfg.loss.type in ["entropic", 'softmax', 'garbage']:
             writer.add_scalar("train/loss", t_metrics["j"].avg, epoch)
             writer.add_scalar("val/loss", v_metrics["j"].avg, epoch)
-        if cfg.adv.who != "no_adv":
-            writer.add_scalar("train/adversarial", t_metrics["j_adv"].avg, epoch)
-            writer.add_scalar("val/adversarial", v_metrics["j_adv"].avg, epoch)
         # Validation metrics
         writer.add_scalar("val/auc", v_metrics["auc"].avg, epoch)
         writer.add_scalar("val/conf_kn", v_metrics["conf_kn"].avg, epoch)
@@ -473,18 +478,22 @@ def worker(gpu, cfg, out_dir,protocol):
         #  training information on console
         # validation+metrics writer+save model time
         val_time = time.time() - train_time - epoch_time
+        def pretty_print(d):
+            #return ",".join(f'{k}: {float(v):1.3f}' for k,v in dict(d).items())
+            return dict(d)
+
         logger.info(
             f"ep:{epoch} "
-            f"train:{dict(t_metrics)} "
-            f"val:{dict(v_metrics)} "
+            f"train:{pretty_print(t_metrics)} "
+            f"val:{pretty_print(v_metrics)} "
             f"t:{train_time:.1f}s "
             f"v:{val_time:.1f}s")
 
         # save best model and current model
-        ckpt_name = str(out_dir / cfg.name) + "_curr.pth"
+        ckpt_name = str(cfg.output_directory / cfg.name) + "_curr.pth"
         if curr_score > BEST_SCORE:
             BEST_SCORE = curr_score
-            ckpt_name = str(out_dir / cfg.name) + "_best.pth"
+            ckpt_name = str(cfg.output_directory / cfg.name) + "_best.pth"
             # ckpt_name = f"{cfg.name}_best.pth"  # best model
             logger.info(f"Saving best model at epoch: {epoch}")
         save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)

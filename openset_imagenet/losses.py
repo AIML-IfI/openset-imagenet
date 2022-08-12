@@ -97,7 +97,7 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
     def __repr__(self):
-        return f"{self.avg:.2e}"
+        return f"{self.avg:3.3f}"
 
 
 # Taken from:

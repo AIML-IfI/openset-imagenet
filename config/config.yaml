@@ -1,7 +1,10 @@
 # General Parameters
+name: experiment
 checkpoint:             # Relative path to checkpoint
 log_name: training.log  # name of the file with training info
 train_mode: train       # either: {train, finetune}
+gpu:                    # index of a GPU, if available
+parallel: off           # run in parallel
 
 # Data Parameters
 data:
@@ -13,18 +16,18 @@ data:
 # Common parameters
 seed: 42        # Common seed across all source of randomness
 batch_size: 64  # If distributed training the batch size is multiplied by the number of gpus
-epochs: 5
-workers: 4      # Dataloader number of workers
+epochs: 10
+workers: 0      # Dataloader number of workers
 threshold: 0.5  # Score threshold, samples with smaller scores are classified as unknowns.
 patience: 0     # Number of epochs to wait before stopping the training. 0 means no early stopping
 
 loss:
-  type: entropic  # either {objectosphere, entropic, softmax, BGSoftmax}
+  type: garbage  # either {objectosphere, entropic, softmax, garbage}
   # Entropic Parameters
   w: 1.0          # Weight of unknown samples in entropic term
   # Objectosphere parameters
-  xi: 0.0         # Norm threshold for features
-  alpha: 0.0      # Objectosphere regularization term
+  xi: 1.0         # Norm threshold for features
+  alpha: 0.01      # Objectosphere regularization term
 
 # Optimiser Parameters
 opt:
