@@ -319,7 +319,7 @@ def validate(model, data_loader, device, loss_fn, n_classes, trackers, cfg):
 
 
 
-def worker(gpu, cfg, out_dir,):
+def worker(gpu, cfg, out_dir,protocol):
     """ Main worker creates all required instances, trains and validates the model.
     Args:
         gpu(int): GPU index.
@@ -354,8 +354,8 @@ def worker(gpu, cfg, out_dir,):
          transforms.ToTensor()])
 
     # create datasets
-    train_file = pathlib.Path(cfg.data.train_file)
-    val_file = pathlib.Path(cfg.data.val_file)
+    train_file = pathlib.Path(cfg.data.train_file.format(protocol))
+    val_file = pathlib.Path(cfg.data.val_file.format(protocol))
 
     if train_file.exists() and val_file.exists():
         train_ds = ImagenetDataset(

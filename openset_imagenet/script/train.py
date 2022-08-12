@@ -19,20 +19,22 @@ def get_args():
     parser.add_argument(
         "protocol",
         type=int,
-        help="Open set protocol: 1, 2 or 3")
+        help="Open set protocol: 1, 2 or 3"
+    )
     parser.add_argument(
-        "--out-dir",
+        "--output-diriectory", "-o",
         type=pathlib.Path,
         default=".",
-        help="Directory to save protocol files")
+        help="Directory to save protocol files"
+    )
     parser.add_argument(
-        "--gpu",
+        "--gpu", "-g",
         type = int,
         nargs="?",
         default = None,
         const = 0,
         help = "Select the GPU index that you have. You can specify an index or not. If not, 0 is assumed. If not selected, we will train on CPU only (not recommended)"
-        )
+    )
 
     args = parser.parse_args()
     return args
@@ -42,9 +44,8 @@ def main():
 
     args = get_args()
     config = openset_imagenet.util.load_yaml(args.configuration)
-    config.
 
-    openset_imagenet.train.worker(args.gpu, cfg, out_dir,)
+    openset_imagenet.train.worker(args.gpu, config, args.output_directory, args.protocol)
 
 
 
