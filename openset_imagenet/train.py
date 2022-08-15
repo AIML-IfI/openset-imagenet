@@ -71,7 +71,7 @@ def load_checkpoint(model, checkpoint, opt=None, device="cpu", scheduler=None):
         device (str): Device to load the checkpoint. Defaults to 'cpu'.
         scheduler (torch lr_scheduler): Learning rate scheduler. Defaults to None.
     """
-    file_path = Path(checkpoint)
+    file_path = pathlib.Path(checkpoint)
     if file_path.is_file():  # First check if file exists
         checkpoint = torch.load(file_path, map_location=device)
         key = list(checkpoint["model_state_dict"].keys())[0]
@@ -92,12 +92,11 @@ def load_checkpoint(model, checkpoint, opt=None, device="cpu", scheduler=None):
         if scheduler is not None:  # Load scheduler state
             scheduler.load_state_dict(checkpoint["scheduler"])
 
-        del checkpoint
         start_epoch = checkpoint["epoch"]
         best_score = checkpoint["best_score"]
         return start_epoch, best_score
     else:
-        raise Exception("Checkpoint file not found")
+        raise Exception(f"Checkpoint file '{checkpoint}' not found")
 
 
 def predict(scores, threshold):
@@ -259,6 +258,43 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
 
 
 
+def get_arrays(model, loader):
+    """ Extract deep features, logits and targets for all dataset. Returns numpy arrays
+
+    Args:
+        model (torch model): Model.
+        loader (torch dataloader): Data loader.
+    """
+    model.eval()
+    with torch.no_grad():
+        data_len = len(loader.dataset)         # dataset length
+        logits_dim = model.logits.out_features  # logits output classes
+        features_dim = model.logits.in_features  # features dimensionality
+        all_targets = torch.empty(data_len, device="cpu")  # store all targets
+        all_logits = torch.empty((data_len, logits_dim), device="cpu")   # store all logits
+        all_feat = torch.empty((data_len, features_dim), device="cpu")   # store all features
+        all_scores = torch.empty((data_len, logits_dim), device="cpu")
+
+        index = 0
+        for images, labels in tqdm.tqdm(loader):
+            curr_b_size = labels.shape[0]  # current batch size, very last batch has different value
+            images = device(images)
+            labels = device(labels)
+            logit, feature = model(images)
+            score = torch.nn.functional.softmax(logit, dim=1)
+            # accumulate results in all_tensor
+            all_targets[index:index + curr_b_size] = labels.detach().cpu()
+            all_logits[index:index + curr_b_size] = logit.detach().cpu()
+            all_feat[index:index + curr_b_size] = feature.detach().cpu()
+            all_scores[index:index + curr_b_size] = score.detach().cpu()
+            index += curr_b_size
+        return(
+            all_targets.numpy(),
+            all_logits.numpy(),
+            all_feat.numpy(),
+            all_scores.numpy())
+
+
 def worker(cfg):
     """ Main worker creates all required instances, trains and validates the model.
     Args:
@@ -315,8 +351,8 @@ def worker(cfg):
             val_ds.replace_negative_label()
         elif cfg.loss.type == "softmax":
             # Remove all unknown labels
-            train_ds.replace_negative_label()
-            val_ds.replace_negative_label()
+            train_ds.remove_negative_label()
+            val_ds.remove_negative_label()
 
     else:
         raise FileNotFoundError("train/validation file does not exist")
@@ -430,7 +466,7 @@ def worker(cfg):
     logger.info(f"Learning rate: {cfg.opt.lr}")
     logger.info(f"Device: {cfg.gpu}")
     logger.info("Training...")
-    writer = SummaryWriter(log_dir=cfg.output_directory)
+    writer = SummaryWriter(log_dir=cfg.output_directory, filename_suffix="-"+cfg.log_name)
 
     for epoch in range(START_EPOCH, cfg.epochs):
         epoch_time = time.time()
@@ -505,4 +541,7 @@ def worker(cfg):
                 logger.info("early stop")
                 break
 
+    # clean everything
+    del model
+    torch.cuda.empty_cache()
     logger.info("Training finished")

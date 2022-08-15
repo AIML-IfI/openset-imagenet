@@ -43,7 +43,7 @@ def get_args():
         "--output-directory", "-o",
         type=pathlib.Path,
         default="experiments",
-        help="Directory to save protocol files"
+        help="Directory to save trained models"
     )
     parser.add_argument(
         "--gpus", "-g",
@@ -64,6 +64,8 @@ def get_args():
 
 def commands(args):
   gpu = 0
+  gpus = len(args.gpus) if args.gpus is not None else 1
+  processes = [[] for _ in range(gpus)]
   for protocol in args.protocols:
     for loss_function in args.loss_functions:
       # load config file
@@ -72,30 +74,35 @@ def commands(args):
       config.loss.type = loss_function
       config.name = loss_function
       config.parallel = args.parallel
+      config.log_name = loss_function + ".log"
       # write config file
       outdir = os.path.join(args.output_directory, f"Protocol_{protocol}")
       config_file = os.path.join(outdir, loss_function + ".yaml")
       os.makedirs(outdir, exist_ok=True)
       open(config_file, "w").write(config.dump())
-      gpu += 1
 
       call = ["train_imagenet.py", config_file, str(protocol), "--output-directory", outdir, "--nice", str(args.nice)]
 #      call = [config_file, str(protocol), "--output-directory", outdir, "--nice", str(args.nice)]
       if args.gpus is not None:
-        call += ["--gpu", str(args.gpus[gpu % len(args.gpus)])]
+        call += ["--gpu", str(args.gpus[gpu])]
+        processes[gpu].append(call)
+        gpu = (gpu + 1) % gpus
+      else:
+        processes[0].append(call)
 
-      print("Running experiment: " + " ".join(call))
-      yield call
+  return processes
 
-def train_one(call):
-  subprocess.call(call)
+def train_one_gpu(processes):
+  for process in processes:
+    print("Running experiment: " + " ".join(process))
+    subprocess.call(process)
 
 def main():
   args = get_args()
   if args.parallel:
     # we run in parallel
     with multiprocessing.pool.ThreadPool(len(args.gpus)) as pool:
-      pool.map(train_one, commands(args))
+      pool.map(train_one_gpu, commands(args))
   else:
     for c in commands(args):
-      train_one(c)
+      train_one_gpu(c)

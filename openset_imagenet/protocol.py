@@ -224,9 +224,9 @@ class OpenSetProtocol:
         """
         out_dir = Path(out_dir)
         # write csv files
-        self.save_csv(out_dir / ('p' + str(self.protocol) + '_train.csv'), self.data['train'])
-        self.save_csv(out_dir / ('p' + str(self.protocol) + '_val.csv'), self.data['val'])
-        self.save_csv(out_dir / ('p' + str(self.protocol) + '_test.csv'), self.data['test'])
+        self.save_csv(out_dir / (f'p{self.protocol}_train.csv'), self.data['train'])
+        self.save_csv(out_dir / (f'p{self.protocol}_val.csv'), self.data['val'])
+        self.save_csv(out_dir / (f'p{self.protocol}_test.csv'), self.data['test'])
         print("Protocol files saved in " + str(out_dir))
 
     def create_dataset(self, random_state=42):

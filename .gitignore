@@ -4,4 +4,5 @@
 **/__pycache__
 /analysis/fig/*
 data/*
+experiments/*
 openset_imagenet.egg-info

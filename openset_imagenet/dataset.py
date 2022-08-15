@@ -68,7 +68,7 @@ class ImagenetDataset(Dataset):
         self.unique_classes.sort()
 
     def remove_negative_label(self):
-        """ Removes all negative labels (-1) from the dataset"""
+        """ Removes all negative labels (-1) from the dataset. This is required for training with plain softmax"""
         self.dataset.drop((self.dataset[i] == -1).index, inplace=True)
 
 
