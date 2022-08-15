@@ -99,40 +99,6 @@ def load_checkpoint(model, checkpoint, opt=None, device="cpu", scheduler=None):
         raise Exception(f"Checkpoint file '{checkpoint}' not found")
 
 
-def predict(scores, threshold):
-    """ Returns the class and max score of the sample. If the max score<threshold returns -1.
-
-    Args:
-        scores(tensor): Softmax scores of all classes and samples in batch.
-        threshold(float): Minimum score to classify as a known sample.
-
-    Returns:
-        Tensor with predicted class and score.
-    """
-    pred_score, pred_class = torch.max(scores, dim=1)
-    unk = pred_score < threshold
-    pred_class[unk] = -1
-    return torch.stack((pred_class, pred_score), dim=1)
-
-
-def filter_correct(logits, targets, threshold):
-    """Returns the indices of correctly predicted known samples.
-
-    Args:
-        logits (tensor): Logits tensor
-        targets (tensor): Targets tensor
-        threshold (float): Minimum score for the target to be classified as known.
-
-    Returns:
-        tuple: Tuple that has in fist position a tensor with indices of correctly predicted samples.
-    """
-    with torch.no_grad():
-        scores = torch.nn.functional.softmax(logits, dim=1)
-        pred = predict(scores, threshold)
-        correct = (targets >= 0) * (pred[:, 0] == targets)
-        return torch.nonzero(correct, as_tuple=True)
-
-
 def train(model, data_loader, optimizer, loss_fn, trackers, cfg):
     """ Main training loop.
 

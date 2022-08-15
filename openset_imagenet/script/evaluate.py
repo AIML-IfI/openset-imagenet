@@ -133,7 +133,7 @@ def main():
         model=model,
         loader=val_loader
     )
-    file_path = args.output_directory / f"{args.loss}_val_arr"+suffix+".npz"
+    file_path = args.output_directory / f"{args.loss}_val_arr{suffix}.npz"
     np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
     print(f"Target labels, logits, features and scores saved in: {file_path}")
 
@@ -143,6 +143,6 @@ def main():
         model=model,
         loader=test_loader
     )
-    file_path = args.output_directory / f"{args.loss}_test_arr"+suffix+".npz"
+    file_path = args.output_directory / f"{args.loss}_test_arr{suffix}.npz"
     np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
     print(f"Target labels, logits, features and scores saved in: {file_path}")

@@ -51,6 +51,11 @@ def get_args():
         help = "If selected, the best model is selected from the validation set. Otherwise, the last model is used"
     )
     parser.add_argument(
+        "--force", "-f",
+        action = "store_true",
+        help = "If set, score files will be recomputed even if they already exist"
+    )
+    parser.add_argument(
         "--output-directory", "-o",
         type=pathlib.Path,
         default="experiments",
@@ -98,8 +103,9 @@ def plot_OSCR(args):
         checkpoint_file = experiment_dir / (loss+suffix+".pth")
         score_files = {v : experiment_dir / f"{loss}_{v}_arr{suffix}.npz" for v in ("val", "test")}
         if os.path.exists(checkpoint_file):
-          if not all(os.path.exists(v) for v in score_files.values()):
+          if not all(os.path.exists(v) for v in score_files.values()) or args.force:
             # extract score files first
+            print("Extracting scores of", checkpoint_file)
             call = ["evaluate_imagenet.py", loss, str(protocol), "--output-directory", experiment_dir, "--imagenet-directory", args.imagenet_directory, "--protocol-directory", args.protocol_directory]
             if args.gpu is not None:
               call += ["-g", str(args.gpu)]
@@ -168,6 +174,7 @@ def plot_confidences(args):
   axs = gs.subplots(sharex=True, sharey=True)
   axs = axs.flat
 
+  max_len = 0
   for index, protocol in enumerate(args.protocols):
       ax_kn = axs[2 * index]
       ax_unk = axs[2 * index + 1]
@@ -185,6 +192,7 @@ def plot_confidences(args):
         ax_kn.plot(step_kn, val_kn, linewidth=linewidth, label = loss + ' kn', color=color_palette[c + 1])
         # Plot unknown confidence
         ax_unk.plot(step_unk, val_unk, linewidth=linewidth, label = loss + ' unk', color=color_palette[c + 1])
+        max_len = max(max_len, max(step_kn))
       # set titles
       ax_kn.set_title(f"$P_{protocol}$ Known", fontsize=font_size)
       ax_unk.set_title(f"$P_{protocol}$ Negative", fontsize=font_size)
@@ -197,7 +205,7 @@ def plot_confidences(args):
       # set the tick parameters for the current axis handler
       ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
       ax.tick_params(labelbottom=True, labeltop=False, labelleft=True, labelright=False, labelsize=font_size)
-      ax.set_xlim(0, 120)
+      ax.set_xlim(0, max_len)
       ax.set_ylim(0, 1)
       # Thicklocator parameters
       ax.yaxis.set_major_locator(MaxNLocator(5, prune='lower'))
