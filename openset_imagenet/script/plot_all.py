@@ -32,19 +32,24 @@ def get_args():
         help="Select the protocols that should be evaluated"
     )
     parser.add_argument(
-      "--loss-functions", "-l",
-      nargs = "+",
-      choices = ('entropic', 'softmax', 'garbage'),
-      default = ('entropic', 'softmax', 'garbage'),
-      help = "Select the loss functions that should be evaluated"
+        "--loss-functions", "-l",
+        nargs = "+",
+        choices = ('entropic', 'softmax', 'garbage'),
+        default = ('entropic', 'softmax', 'garbage'),
+        help = "Select the loss functions that should be evaluated"
     )
     parser.add_argument(
-      "--labels",
-      nargs="+",
-      choices = ("EOS", "S", "B"),
-      default = ("EOS", "S", "B"),
-      help = "Select the labels for the plots"
-      )
+        "--labels",
+        nargs="+",
+        choices = ("EOS", "S", "B"),
+        default = ("EOS", "S", "B"),
+        help = "Select the labels for the plots"
+    )
+    parser.add_argument(
+        "--use-best",
+        action = "store_true",
+        help = "If selected, the best model is selected from the validation set. Otherwise, the last model is used"
+    )
     parser.add_argument(
         "--output-directory", "-o",
         type=pathlib.Path,
@@ -89,12 +94,18 @@ def plot_OSCR(args):
     for protocol in args.protocols:
       for loss in args.loss_functions:
         experiment_dir = args.output_directory / f"Protocol_{protocol}"
-        checkpoint_file = experiment_dir / (loss+"_best.pth")
-        score_files = {v : experiment_dir / f"{loss}_{v}_arr.npz" for v in ("val", "test")}
+        suffix = "_best" if args.use_best else "_curr"
+        checkpoint_file = experiment_dir / (loss+suffix+".pth")
+        score_files = {v : experiment_dir / f"{loss}_{v}_arr{suffix}.npz" for v in ("val", "test")}
         if os.path.exists(checkpoint_file):
           if not all(os.path.exists(v) for v in score_files.values()):
             # extract score files first
-            subprocess.call(["evaluate_imagenet.py", loss, str(protocol), "--output-directory", experiment_dir, "--imagenet-directory", args.imagenet_directory, "--protocol-directory", args.protocol_directory] + (["-g", str(args.gpu)] if args.gpu is not None else []))
+            call = ["evaluate_imagenet.py", loss, str(protocol), "--output-directory", experiment_dir, "--imagenet-directory", args.imagenet_directory, "--protocol-directory", args.protocol_directory]
+            if args.gpu is not None:
+              call += ["-g", str(args.gpu)]
+            if args.use_best:
+              call += ["-b"]
+            subprocess.call(call)
           # remember files
           scores = openset_imagenet.util.read_array_list(score_files)
           val[protocol][loss] = scores["val"]

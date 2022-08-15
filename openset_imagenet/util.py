@@ -154,9 +154,10 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
         # ax.set_xlim(None, None)
         ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))  # , prune='lower'))
     # Remove fpr=0 since it cause errors with different ccrs and logscale.
-    non_zero = x != 0
-    x = x[non_zero]
-    y = y[non_zero]
+    if len(x):
+        non_zero = x != 0
+        x = x[non_zero]
+        y = y[non_zero]
     ax.plot(x,
             y,
             label=exp_name,
@@ -172,14 +173,18 @@ def plot_oscr(arrays, scale='linear', title=None, ax_label_font=13,
     color_palette = cm.get_cmap('tab10', 10).colors
 
     for idx, exp_name in enumerate(arrays):
-        loss = 'BGsoftmax' if exp_name.startswith('B') else None  # Is a BGsoftmax experiment
-        gt = arrays[exp_name]['gt']
-        scores = arrays[exp_name]['scores']
+        has_bg = exp_name == "garbage"
 
-        if loss == 'BGsoftmax':    # If the loss is BGsoftmax then removes the background class
-            scores = scores[:, :-1]
+        if arrays[exp_name] is None:
+            ccr, fpr = [], []
+        else:
+            gt = arrays[exp_name]['gt']
+            scores = arrays[exp_name]['scores']
 
-        ccr, fpr = calculate_oscr(gt, scores, unk_label)
+            if has_bg:    # If the loss is BGsoftmax then removes the background class
+                scores = scores[:, :-1]
+            ccr, fpr = calculate_oscr(gt, scores, unk_label)
+
         ax = plot_single_oscr(x=fpr, y=ccr,
                               ax=ax, exp_name=exp_name,
                               color=color_palette[idx], baseline=False,

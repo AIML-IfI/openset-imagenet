@@ -19,7 +19,7 @@ def get_args():
     # directory parameters
     parser.add_argument(
         "loss",
-        choices = ["objectosphere", "entropic", "softmax", "garbage"],
+        choices = ["entropic", "softmax", "garbage"],
         help="Which loss function to evaluate"
     )
     parser.add_argument(
@@ -27,6 +27,11 @@ def get_args():
         type = int,
         choices = (1,2,3),
         help = "Which protocol to evaluate"
+    )
+    parser.add_argument(
+        "--use-best", "-b",
+        action="store_true",
+        help = "If selected, the best model is selected from the validation set. Otherwise, the last model is used"
     )
     parser.add_argument(
         "--gpu", "-g",
@@ -49,7 +54,7 @@ def get_args():
         help = "Where are the protocol files stored"
     )
     parser.add_argument(
-        "--experiment-directory",
+        "--output-directory",
         default = "experiments/Protocol_{}",
         help = "Where to find the results of the experiments"
     )
@@ -66,10 +71,10 @@ def get_args():
 
     args = parser.parse_args()
     try:
-        args.experiment_directory = args.experiment_directory.format(args.protocol)
+        args.output_directory = args.output_directory.format(args.protocol)
     except:
         pass
-    args.experiment_directory = Path(args.experiment_directory)
+    args.output_directory = Path(args.output_directory)
     return args
 
 
@@ -110,14 +115,15 @@ def main():
         print("No GPU device selected, evalaution will be slow")
         set_device_cpu()
 
-    if val_dataset.has_negatives():
-        n_classes = val_dataset.label_count - 1  # number of classes - 1 when training with unknowns
+    if args.loss == "garbage":
+        n_classes = val_dataset.label_count # we use one class for the negatives
     else:
-        n_classes = val_dataset.label_count
+        n_classes = val_dataset.label_count - 1  # number of classes - 1 when training with unknowns
 
     # create model
+    suffix = "_best" if args.use_best else "_curr"
     model = openset_imagenet.ResNet50(fc_layer_dim=n_classes, out_features=n_classes, logit_bias=False)
-    start_epoch, best_score = openset_imagenet.train.load_checkpoint(model, args.experiment_directory / (args.loss+"_best.pth"))
+    start_epoch, best_score = openset_imagenet.train.load_checkpoint(model, args.output_directory / (args.loss+suffix+".pth"))
     device(model)
 
     print("========== Evaluating ==========")
@@ -127,7 +133,7 @@ def main():
         model=model,
         loader=val_loader
     )
-    file_path = args.experiment_directory / f"{args.loss}_val_arr.npz"
+    file_path = args.output_directory / f"{args.loss}_val_arr"+suffix+".npz"
     np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
     print(f"Target labels, logits, features and scores saved in: {file_path}")
 
@@ -137,6 +143,6 @@ def main():
         model=model,
         loader=test_loader
     )
-    file_path = args.experiment_directory / f"{args.loss}_test_arr.npz"
+    file_path = args.output_directory / f"{args.loss}_test_arr"+suffix+".npz"
     np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
     print(f"Target labels, logits, features and scores saved in: {file_path}")

@@ -1,55 +1,22 @@
 """ Code taken from the vast library https://github.com/Vastlab/vast"""
-from vast import losses
-from vast import tools
 from torch.nn import functional as f
 import torch
-
-
-class ObjectoLoss:
-    """ Simple wrapping class to handle losses, the class is only intended to keep code
-    consistency.
-    """
-    def __init__(self, n_classes, unk_weight=1, norm_xi=10):
-        # Entropic open-set term of the loss
-        self.entropic = EntropicLoss(n_classes, unk_weight)
-        # Norm penalty of the loss
-        self.objecto = losses.objectoSphere_loss(knownsMinimumMag=norm_xi)
-        self.entropic_value = None
-        self.objecto_value = None
-
-    def __call__(self, features, logits, targets, alpha, sample_weights=None):
-        objecto_term = self.objecto(features, targets, sample_weights, reduction="sum")
-        entropic_term = self.entropic(logits, targets, sample_weights)
-        loss = entropic_term + alpha * objecto_term
-        self.entropic_value = entropic_term.item()
-        self.objecto_value = alpha * objecto_term .item()
-        return loss
-
-
-class EntropicLoss:
-    """ Simple wrapping class to handle losses, the class is only intended to keep code
-    consistency.
-    """
-    def __init__(self, n_classes, unk_weight=1):
-        self.entropic = EntropicOpensetLoss(n_classes, unk_weight)
-
-    def __call__(self, logits, targets, sample_weights=None):
-        return self.entropic(logits, targets, sample_weights, reduction="sum")
+from vast import tools
 
 
 class EntropicOpensetLoss:
     """ Taken from vast, modified to accept mini batches without positive examples."""
-    def __init__(self, num_of_classes=10, unk_weight=1):
+    def __init__(self, num_of_classes, unk_weight=1):
         self.class_count = num_of_classes
         self.eye = tools.device(torch.eye(self.class_count))
-        self.ones = tools.device(torch.ones(self.class_count))
         self.unknowns_multiplier = unk_weight / self.class_count
+        self.ones = tools.device(torch.ones(self.class_count)) * self.unknowns_multiplier
+        self.cross_entropy = torch.nn.CrossEntropyLoss()
 
-    @tools.loss_reducer
-    def __call__(self, logits, target, sample_weights=None):
+    def __call__(self, logits, target):
         categorical_targets = tools.device(torch.zeros(logits.shape))
-        kn_idx = target != -1
-        unk_idx = ~kn_idx
+        unk_idx = target < 0
+        kn_idx = ~unk_idx
         # check if there is known samples in the batch
         if torch.any(kn_idx):
             categorical_targets[kn_idx, :] = self.eye[target[kn_idx]]
@@ -57,16 +24,9 @@ class EntropicOpensetLoss:
         categorical_targets[unk_idx, :] = (
             self.ones.expand(
                 torch.sum(unk_idx).item(), self.class_count
-            ) * self.unknowns_multiplier
+            )
         )
-
-        log_values = f.log_softmax(logits, dim=1)
-        negative_log_values = -1 * log_values
-        loss = negative_log_values * categorical_targets
-        sample_loss = torch.sum(loss, dim=1)
-        if sample_weights is not None:
-            sample_loss = sample_loss * sample_weights
-        return sample_loss
+        return self.cross_entropy(logits, categorical_targets)
 
 
 class AverageMeter(object):

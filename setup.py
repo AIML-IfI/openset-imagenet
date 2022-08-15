@@ -52,6 +52,7 @@ setup(
         'train_imagenet.py     = openset_imagenet.script.train:main',
         'train_imagenet_all.py = openset_imagenet.script.train_all:main',
         'evaluate_imagenet.py  = openset_imagenet.script.evaluate:main',
+        'plot_imagenet.py      = openset_imagenet.script.plot_all:main',
         'protocols_imagenet.py = openset_imagenet.script.protocols:main'
       ],
     },

@@ -68,8 +68,10 @@ class ImagenetDataset(Dataset):
         self.unique_classes.sort()
 
     def remove_negative_label(self):
-        """ Removes all negative labels (-1) from the dataset. This is required for training with plain softmax"""
-        self.dataset.drop((self.dataset[i] == -1).index, inplace=True)
+        """ Removes all negative labels (<0) from the dataset. This is required for training with plain softmax"""
+        self.dataset.drop(self.dataset[self.dataset[1] < 0].index, inplace=True)
+        self.unique_classes = np.sort(self.dataset[1].unique())
+        self.label_count = len(self.dataset[1].unique())
 
 
     def calculate_class_weights(self):

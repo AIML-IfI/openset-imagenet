@@ -12,10 +12,10 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from vast.tools import set_device_gpu, set_device_cpu, device
 from loguru import logger
-from .metrics import confidence, auc_score_binary, auc_score_multiclass, predict_objectosphere
+from .metrics import confidence, auc_score_binary, auc_score_multiclass
 from .dataset import ImagenetDataset
 from .model import ResNet50
-from .losses import AverageMeter, EarlyStopping, EntropicLoss, ObjectoLoss
+from .losses import AverageMeter, EarlyStopping, EntropicOpensetLoss
 import tqdm
 
 
@@ -164,13 +164,8 @@ def train(model, data_loader, optimizer, loss_fn, trackers, cfg):
         logits, features = model(images)
 
         # Calculate loss
-        if cfg.loss.type == "objectosphere":
-            j = loss_fn(features, logits, labels, cfg.loss.alpha)
-            trackers["j_o"].update(loss_fn.objecto_value, batch_len)
-            trackers["j_e"].update(loss_fn.entropic_value, batch_len)
-        elif cfg.loss.type in ["garbage", "entropic", "softmax"]:
-            j = loss_fn(logits, labels)
-            trackers["j"].update(j.item(), batch_len)
+        j = loss_fn(logits, labels)
+        trackers["j"].update(j.item(), batch_len)
         # Backward pass
         j.backward()
         optimizer.step()
@@ -190,6 +185,14 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
     for metric in trackers.values():
         metric.reset()
 
+    if cfg.loss.type == "garbage":
+        min_unk_score = 0.
+        unknown_class = n_classes - 1
+    else:
+        min_unk_score = 1. / n_classes
+        unknown_class = -1
+
+
     model.eval()
     with torch.no_grad():
         data_len = len(data_loader.dataset)  # size of dataset
@@ -203,54 +206,19 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
             logits, features = model(images)
             scores = torch.nn.functional.softmax(logits, dim=1)
 
-            if cfg.loss.type == "objectosphere":
-                j = loss_fn(features, logits, labels, cfg.loss.alpha)
-                trackers["j_o"].update(loss_fn.objecto_value, batch_len)
-                trackers["j_e"].update(loss_fn.entropic_value, batch_len)
-            elif cfg.loss.type in ["garbage", "entropic", "softmax"]:
-                j = loss_fn(logits, labels)
-                trackers["j"].update(j.item(), batch_len)
+            j = loss_fn(logits, labels)
+            trackers["j"].update(j.item(), batch_len)
 
             # accumulate partial results in empty tensors
             start_ix = i * cfg.batch_size
             all_targets[start_ix: start_ix + batch_len] = labels
             all_scores[start_ix: start_ix + batch_len] = scores
 
-        # Validation cases for different losses:
-        # Softmax:  metric: multiclass AUC
-        #           score, target: without unknowns
-        # Entropic: metric: Binary AUC (kn vs unk)
-        #           score: does not have unknown class
-        #           target: unknown class -1
-        # garbage: metric: Binary AUC (kn vs unk)
-        #           score: has additional class for unknown samples, remove it
-        #           target: unknown class -1
-        min_unk_score = None
-        if cfg.loss.type == "softmax":
-            min_unk_score = 0.0
-            auc = auc_score_multiclass(all_targets, all_scores)
-
-        elif cfg.loss.type in ["entropic", "objectosphere"]:
-            min_unk_score = 1 / n_classes
-            # max_kn_scores = torch.max(all_scores, dim=1)[0]
-            auc = auc_score_binary(all_targets, all_scores)
-
-        elif cfg.loss.type == "garbage":
-            min_unk_score = 0.0
-            # Removes last column of scores to use only known classes
-            all_scores = all_scores[:, :-1]
-
-            # Replaces the biggest class label with -1
-            biggest_label = data_loader.dataset.unique_classes[-1]
-            all_targets[all_targets == biggest_label] = -1
-
-            auc = auc_score_binary(all_targets, all_scores)
-
         kn_conf, kn_count, neg_conf, neg_count = confidence(
             scores=all_scores,
             target_labels=all_targets,
-            offset=min_unk_score)
-        trackers["auc"].update(auc, data_len)
+            offset=min_unk_score,
+            unknown_class = unknown_class)
         if kn_count:
             trackers["conf_kn"].update(kn_conf, kn_count)
         if neg_count:
@@ -350,9 +318,9 @@ def worker(cfg):
             train_ds.replace_negative_label()
             val_ds.replace_negative_label()
         elif cfg.loss.type == "softmax":
-            # Remove all unknown labels
+            # remove the negative label from softmax training set, not from val set!
             train_ds.remove_negative_label()
-            val_ds.remove_negative_label()
+
 
     else:
         raise FileNotFoundError("train/validation file does not exist")
@@ -389,18 +357,21 @@ def worker(cfg):
 
     # set loss
     loss = None
-    if train_ds.has_negatives():
-        # number of classes - 1 when training with unknowns
+    if cfg.loss.type == "entropic":
+        # number of classes - 1 since we have no label for unknown
         n_classes = train_ds.label_count - 1
     else:
+        # number of classes when training with extra garbage class for unknowns, or when unknowns are removed
         n_classes = train_ds.label_count
-    if cfg.loss.type == "objectosphere":
-        loss = ObjectoLoss(n_classes, cfg.loss.w, cfg.loss.xi)
-    elif cfg.loss.type == "entropic":
-        loss = EntropicLoss(n_classes, cfg.loss.w)
+
+    if cfg.loss.type == "entropic":
+        # We select entropic loss using the unknown class weights from the config file
+        loss = EntropicOpensetLoss(n_classes, cfg.loss.w)
     elif cfg.loss.type == "softmax":
-        loss = torch.nn.CrossEntropyLoss()
+        # We need to ignore the index only for validation loss computation
+        loss = torch.nn.CrossEntropyLoss(ignore_index=-1)
     elif cfg.loss.type == "garbage":
+        # We use balanced class weights
         class_weights = device(train_ds.calculate_class_weights())
         loss = torch.nn.CrossEntropyLoss(weight=class_weights)
 
@@ -491,23 +462,16 @@ def worker(cfg):
             trackers=v_metrics,
             cfg=cfg)
 
-        curr_score = v_metrics["auc"].avg
+        curr_score = v_metrics["conf_kn"].avg + v_metrics["conf_unk"].avg
 
         # learning rate scheduler step
         if cfg.opt.decay > 0:
             scheduler.step()
 
         # Logging metrics to tensorboard object
-        if cfg.loss.type == "objectosphere":
-            writer.add_scalar("train/objecto", t_metrics["j_o"].avg, epoch)
-            writer.add_scalar("train/entropic", t_metrics["j_e"].avg, epoch)
-            writer.add_scalar("val/objecto", v_metrics["j_o"].avg, epoch)
-            writer.add_scalar("val/entropic", v_metrics["j_e"].avg, epoch)
-        elif cfg.loss.type in ["entropic", 'softmax', 'garbage']:
-            writer.add_scalar("train/loss", t_metrics["j"].avg, epoch)
-            writer.add_scalar("val/loss", v_metrics["j"].avg, epoch)
+        writer.add_scalar("train/loss", t_metrics["j"].avg, epoch)
+        writer.add_scalar("val/loss", v_metrics["j"].avg, epoch)
         # Validation metrics
-        writer.add_scalar("val/auc", v_metrics["auc"].avg, epoch)
         writer.add_scalar("val/conf_kn", v_metrics["conf_kn"].avg, epoch)
         writer.add_scalar("val/conf_unk", v_metrics["conf_unk"].avg, epoch)
 
@@ -519,6 +483,8 @@ def worker(cfg):
             return dict(d)
 
         logger.info(
+            f"loss:{cfg.loss.type} "
+            f"protocol:{cfg.protocol} "
             f"ep:{epoch} "
             f"train:{pretty_print(t_metrics)} "
             f"val:{pretty_print(v_metrics)} "
@@ -531,7 +497,7 @@ def worker(cfg):
             BEST_SCORE = curr_score
             ckpt_name = str(cfg.output_directory / cfg.name) + "_best.pth"
             # ckpt_name = f"{cfg.name}_best.pth"  # best model
-            logger.info(f"Saving best model at epoch: {epoch}")
+            logger.info(f"Saving best model {ckpt_name} at epoch: {epoch}")
         save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
 
         # Early stopping
@@ -543,5 +509,4 @@ def worker(cfg):
 
     # clean everything
     del model
-    torch.cuda.empty_cache()
     logger.info("Training finished")

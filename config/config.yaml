@@ -22,17 +22,14 @@ threshold: 0.5  # Score threshold, samples with smaller scores are classified as
 patience: 0     # Number of epochs to wait before stopping the training. 0 means no early stopping
 
 loss:
-  type: garbage  # either {objectosphere, entropic, softmax, garbage}
+  type: garbage  # either {entropic, softmax, garbage}
   # Entropic Parameters
-  w: 1.0          # Weight of unknown samples in entropic term
-  # Objectosphere parameters
-  xi: 1.0         # Norm threshold for features
-  alpha: 0.01      # Objectosphere regularization term
+  w: 1.
 
-# Optimiser Parameters
+# Optimizer Parameters
 opt:
   type: adam  # Two options: {adam, sgd}
-  lr: 1.e-3    # Initial learning rate
+  lr: 1.e-3   # Initial learning rate
   decay: 0    # Number of epochs to wait for each learning rate reduction. 0 means no decay
   gamma: 1    # Factor to reduce the learning rate
 
@@ -40,4 +37,4 @@ opt:
 dist:
   distributed: True  # False to use only one GPU # TODO: delete this option
   gpus: 2            # Number of GPUS to use
-  port: "8889"        # Default port to communicate.
+  port: "8889"       # Default port to communicate.
