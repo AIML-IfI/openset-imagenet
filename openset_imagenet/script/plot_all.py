@@ -2,6 +2,7 @@
 
 import argparse
 import multiprocessing
+import collections
 import subprocess
 import pathlib
 import openset_imagenet
@@ -152,7 +153,7 @@ def plot_OSCR(args):
 def plot_confidences(args):
 
   # locate event paths
-  event_files = {p:{} for p in args.protocols}
+  event_files = {p:collections.defaultdict(list) for p in args.protocols}
   for protocol in args.protocols:
     protocol_dir = args.output_directory/f"Protocol_{protocol}"
     if os.path.exists(protocol_dir):
@@ -162,7 +163,7 @@ def plot_confidences(args):
         if f.startswith("event"):
           loss = f.split("-")[1].split(".")[0]
           # set (overwrite) event file
-          event_files[protocol][loss] = protocol_dir / f
+          event_files[protocol][loss].append(protocol_dir / f)
 
   P = len(args.protocols)
   linewidth = 1.5
@@ -174,6 +175,22 @@ def plot_confidences(args):
   axs = gs.subplots(sharex=True, sharey=True)
   axs = axs.flat
 
+
+  def load_accumulators(files):
+    known_data, unknown_data = {}, {}
+    for event_file in files:
+      try:
+        event_acc = EventAccumulator(str(event_file), size_guidance={'scalars': 0})
+        event_acc.Reload()
+        for event in event_acc.Scalars('val/conf_kn'):
+          known_data[event[1]] = event[2]
+        for event in event_acc.Scalars('val/conf_unk'):
+          unknown_data[event[1]] = event[2]
+      except KeyError: pass
+
+    # re-structure
+    return zip(*sorted(known_data.items())), zip(*sorted(unknown_data.items()))
+
   max_len = 0
   for index, protocol in enumerate(args.protocols):
       ax_kn = axs[2 * index]
@@ -182,13 +199,9 @@ def plot_confidences(args):
         step_kn, val_kn, step_unk, val_unk = [[]]*4
         if loss in event_files[protocol]:
           # Read data from the tensorboard object
-          print("Reading File", event_files[protocol][loss])
-          try:
-            event_acc = EventAccumulator(str(event_files[protocol][loss]), size_guidance={'scalars': 0})
-            event_acc.Reload()
-            _, step_kn, val_kn = zip(*event_acc.Scalars('val/conf_kn'))
-            _, step_unk, val_unk = zip(*event_acc.Scalars('val/conf_unk'))
-          except KeyError: pass
+          (step_kn, val_kn), (step_unk, val_unk) = load_accumulators(event_files[protocol][loss])
+        else:
+          step_kn, val_kn, step_unk, val_unk = [[]]*4
 
         # Plot known confidence
         ax_kn.plot(step_kn, val_kn, linewidth=linewidth, label = loss + ' kn', color=color_palette[c])

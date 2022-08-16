@@ -4,7 +4,6 @@ import argparse
 import multiprocessing
 import subprocess
 import pathlib
-from .train import main as train_one
 import openset_imagenet
 import os
 
@@ -94,7 +93,6 @@ def commands(args):
       open(config_file, "w").write(config.dump())
 
       call = ["train_imagenet.py", config_file, str(protocol), "--output-directory", outdir, "--nice", str(args.nice)]
-#      call = [config_file, str(protocol), "--output-directory", outdir, "--nice", str(args.nice)]
       if args.gpus is not None:
         call += ["--gpu", str(args.gpus[gpu])]
         processes[gpu].append(call)
