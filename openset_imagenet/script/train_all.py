@@ -20,8 +20,9 @@ def get_args():
     """
     parser = argparse.ArgumentParser("Imagenet Training Parameters", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        "configuration",
+        "--configuration",
         type = pathlib.Path,
+        default = pathlib.Path("config/train.yaml"),
         help = "The configuration file that defines the experiment"
     )
     parser.add_argument(
@@ -57,6 +58,11 @@ def get_args():
         default = 20,
         help = "Select priority level"
     )
+    parser.add_argument(
+        "--continue-training", "-c",
+        action = "store_true",
+        help = "Continue training when old snapshot is available"
+    )
 
     args = parser.parse_args()
     args.parallel = args.gpus is not None and len(args.gpus) > 1
@@ -70,13 +76,19 @@ def commands(args):
     for loss_function in args.loss_functions:
       # load config file
       config = openset_imagenet.util.load_yaml(args.configuration)
+      outdir = os.path.join(args.output_directory, f"Protocol_{protocol}")
       # modify config file
       config.loss.type = loss_function
       config.name = loss_function
       config.parallel = args.parallel
       config.log_name = loss_function + ".log"
+      # check to continue
+      if args.continue_training:
+        checkpoint_file = os.path.join(outdir, loss_function + "_curr.pth")
+        if os.path.exists(checkpoint_file):
+          config.checkpoint = checkpoint_file
+
       # write config file
-      outdir = os.path.join(args.output_directory, f"Protocol_{protocol}")
       config_file = os.path.join(outdir, loss_function + ".yaml")
       os.makedirs(outdir, exist_ok=True)
       open(config_file, "w").write(config.dump())

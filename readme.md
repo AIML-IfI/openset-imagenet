@@ -1,40 +1,90 @@
 # Open set on Imagenet
-Implementation of the experiments performed in Large-Scale Open-Set Classification
-Protocols for ImageNet. 
+Implementation of the experiments performed in Large-Scale Open-Set Classification Protocols for ImageNet.
+
+## Data
+
+All scripts rely on the ImageNet dataset using the ILSVRC 2012 data.
+If you do not have a copy yet, it can be downloaded from Kaggle (untested): https://www.kaggle.com/competitions/imagenet-object-localization-challenge/overview
+The protocols rely on the `robustness` library, which in turn relies on some files that have been distributed with the ImageNet dataset some time ago, but they are not available anymore.
+With a bit of luck, you can find the files somewhere online:
+
+* imagenet_class_index.json
+* wordnet.is_a.txt
+* words.txt
+
+If not, you can also rely on the pre-computed protocol files, which can be found in the provided `protocols.zip` file and extracted via:
+
+    unzip protocols.zip
+
+
 ## Setup
-The modules were developed using Python 3.8.13, Pytorch 1.11 and the libraries listed in
-requirements.txt. It is recommended to create a new virtual environment to 
-avoid dependencies issues. For example, using miniconda:
 
-`conda create --name torch111 python=3.8`
+We provide a conda installation script to install all the dependencies.
+Please run:
 
-`conda activate torch111`
+    conda env create -f environment.yaml
+
+Afterward, activate the environment via:
+
+    conda activate openset-imagenet
+
+## Scripts
+
+The directory `openset_imagenet/script` includes several scripts, which are automatically installed and runnable.
+
+### Protocols
+
+You can generate the protocol files using the command `imagenet_protocols.py`.
+Please refer to its help for details:
+
+    protocols_imagenet.py --help
+
+Basically, you have to provide the original directory for your ImageNet images, and the directory containing the files for the `robustness` library.
+The other options should be changed rarely.
+
+### Training of one model
+
+The training can be performed using the `train_imagenet.py` script.
+It relies on a configuration file as can be found in `config/train.yaml`.
+Please set all parameters as required (the default values are as used in the paper), and run:
+
+    train_imagenet.py [config] [protocol] -o [outdir] -g GPU
+
+where `[config]` is the configuration file, `[protocol]` one of the three protocols, and `[outdir]` the output directory of the trained model and some logs.
+The `-g` option can be used to specify that the training should be performed on the GPU (**highly recommended**), and you can also specify a GPU index in case you have several GPUs at your disposal.
+
+### Training of all the models in the paper
+
+The `train_imagenet_all.py` script provides a shortcut to train a model with three different loss functions on three different protocols.
+It relies on the same configuration file (`config/train.yaml`) where some parts are modifed during execution.
+You can run:
+
+    train_imagenet_all.py --configuration [config] -g [list-of-gpus]
+
+where `[config]` is the configuration file, which is by default `config/train.yaml`.
+You can also select some of the `--protocols` to run on, as well as some of the `--loss-functions`, or change the `--output-directory`.
+The `-g` option can take several GPU indexes, and trainings will be executed in parallel if more than one GPU index is specified.
+
+When you have a single GPU available, start the script and book a trip to Hawaii, results will finish in about a week.
+The more GPUs you can spare, the faster the training will end.
+
+### Evaluation
+
+Finally, the `plot_imagenet.py` script can be used to perform the plots as we have them in the paper.
+This script will use all trained models (as resulting from the `train_imagenet_all.py` script), extract the features and scores for the validation and test set, and plots into a single file (`ImageNet.pdf` by default):
+
+1. OSCR curves are presented in Figure 2 of the paper, on the vaidation and test sets.
+2. Confidence propagation plots as in Figure 3, for all three loss functions on the validation set.
+3. Histograms of softmax scores as in Figure 4 of the paper.
+
+Please specify the `--imagenet-directory` so that the original image files can be found, and select an appropriate GPU index.
+You can also modify other parameters, see:
+
+    plot_imagenet.py --help
+
+but it is recommended to keep the default values to be able to regenerate the plots from the paper.
 
 
-`pip install -r /path/to/requirements.txt`
+## Getting help
 
-## Protocols
-The script protocols.py creates the imagenet open-set protocols and creates three csv files: test, val and test.
-Usage example:
-
-```
-python protocols.py \
---prot 1 \
---imagenet_dir /path/to/imagenet \
---metadata_dir /path/to/metadata \
---out_dir /path/to/dir \
---seed 42
-```
-
-## Train
-
-Command line basic example:
-```
-CUDA_VISIBLE_DEVICES=1 python src/train.py \
-name=experiment1 \
-data.train_file = data/v2.0/p1_train_tiny.csv \
-data.val_file = data/v2.0/p1_val_tiny.csv \
-data.test_file = data/v2.0/p1_test_tiny.csv \
-loss.type = entropic \
-epochs = 100 \
-```
+In case of trouble, feel free to contact us under [guenther@ifi.uzh.ch](mailto:guenther@ifi.uzh.ch?subject=Open-Set%20ImageNet%20Protocols)

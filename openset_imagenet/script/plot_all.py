@@ -34,15 +34,15 @@ def get_args():
     parser.add_argument(
         "--loss-functions", "-l",
         nargs = "+",
-        choices = ('entropic', 'softmax', 'garbage'),
-        default = ('entropic', 'softmax', 'garbage'),
+        choices = ('softmax', 'entropic', 'garbage'),
+        default = ('softmax', 'entropic', 'garbage'),
         help = "Select the loss functions that should be evaluated"
     )
     parser.add_argument(
         "--labels",
         nargs="+",
-        choices = ("EOS", "S", "B"),
-        default = ("EOS", "S", "B"),
+        choices = ("S", "EOS", "BG"),
+        default = ("S", "EOS", "BG"),
         help = "Select the labels for the plots"
     )
     parser.add_argument(
@@ -117,7 +117,7 @@ def plot_OSCR(args):
           val[protocol][loss] = scores["val"]
           test[protocol][loss] = scores["test"]
         else:
-          print ("Skipping protocol", protocol, loss)
+          print ("Checkpoint file", checkpoint_file, "not found, skipping protocol", protocol, loss)
           val[protocol][loss] = None
           test[protocol][loss] = None
 
@@ -137,7 +137,7 @@ def plot_OSCR(args):
                     ax_label_font=font, ax=axs[index+P], unk_label=-2,)
     # Manual legend
     axs[-P].legend(args.labels, frameon=False,
-              fontsize=font - 1, bbox_to_anchor=(-0.2, -0.12), ncol=3, handletextpad=0.5, columnspacing=1, markerscale=3)
+              fontsize=font - 1, bbox_to_anchor=(0.8, -0.12), ncol=3, handletextpad=0.5, columnspacing=1, markerscale=3)
     # Axis properties
     for ax in axs:
         ax.label_outer()
@@ -147,6 +147,7 @@ def plot_OSCR(args):
     fig.text(0.5, 0.03, 'FPR', ha='center', fontsize=font)
     fig.text(0.08, 0.5, 'CCR', va='center', rotation='vertical', fontsize=font)
     return val, test
+
 
 def plot_confidences(args):
 
@@ -163,13 +164,12 @@ def plot_confidences(args):
           # set (overwrite) event file
           event_files[protocol][loss] = protocol_dir / f
 
-
   P = len(args.protocols)
   linewidth = 1.5
   legend_pos = "lower right"
   font_size = 15
   color_palette = cm.get_cmap('tab10', 10).colors
-  fig = pyplot.figure(figsize=(8,2*P+1))
+  fig = pyplot.figure(figsize=(12,3*P+1))
   gs = fig.add_gridspec(P, 2, hspace=0.2, wspace=0.1)
   axs = gs.subplots(sharex=True, sharey=True)
   axs = axs.flat
@@ -179,27 +179,30 @@ def plot_confidences(args):
       ax_kn = axs[2 * index]
       ax_unk = axs[2 * index + 1]
       for c, loss in enumerate(args.loss_functions):
+        step_kn, val_kn, step_unk, val_unk = [[]]*4
         if loss in event_files[protocol]:
           # Read data from the tensorboard object
-          event_acc = EventAccumulator(str(event_files[protocol][loss]), size_guidance={'scalars': 0})
-          event_acc.Reload()
-          _, step_kn, val_kn = zip(*event_acc.Scalars('val/conf_kn'))
-          _, step_unk, val_unk = zip(*event_acc.Scalars('val/conf_unk'))
-        else:
-          step_kn, val_kn, step_unk, val_unk = []*4
+          print("Reading File", event_files[protocol][loss])
+          try:
+            event_acc = EventAccumulator(str(event_files[protocol][loss]), size_guidance={'scalars': 0})
+            event_acc.Reload()
+            _, step_kn, val_kn = zip(*event_acc.Scalars('val/conf_kn'))
+            _, step_unk, val_unk = zip(*event_acc.Scalars('val/conf_unk'))
+          except KeyError: pass
 
         # Plot known confidence
-        ax_kn.plot(step_kn, val_kn, linewidth=linewidth, label = loss + ' kn', color=color_palette[c + 1])
+        ax_kn.plot(step_kn, val_kn, linewidth=linewidth, label = loss + ' kn', color=color_palette[c])
         # Plot unknown confidence
-        ax_unk.plot(step_unk, val_unk, linewidth=linewidth, label = loss + ' unk', color=color_palette[c + 1])
-        max_len = max(max_len, max(step_kn))
+        ax_unk.plot(step_unk, val_unk, linewidth=linewidth, label = loss + ' unk', color=color_palette[c])
+        if len(step_kn):
+          max_len = max(max_len, max(step_kn))
       # set titles
       ax_kn.set_title(f"$P_{protocol}$ Known", fontsize=font_size)
       ax_unk.set_title(f"$P_{protocol}$ Negative", fontsize=font_size)
 
   # Manual legend
   axs[-2].legend(args.labels, frameon=False,
-                fontsize=font_size - 1, bbox_to_anchor=(0.8, -0.1), ncol=2, handletextpad=0.5, columnspacing=1)
+                fontsize=font_size - 1, bbox_to_anchor=(0.8, -0.1), ncol=3, handletextpad=0.5, columnspacing=1)
 
   for ax in axs:
       # set the tick parameters for the current axis handler
@@ -223,7 +226,7 @@ def plot_softmax(args, test):
     P = len(args.protocols)
     N = len(args.loss_functions)
 
-    fig = pyplot.figure(figsize=(2*P+1, 2*N))
+    fig = pyplot.figure(figsize=(3*P+1, 3*N))
     gs = fig.add_gridspec(N, P, hspace=0.2, wspace=0.08)
     axs = gs.subplots(sharex=True, sharey=False)
     axs = axs.flat
@@ -238,13 +241,16 @@ def plot_softmax(args, test):
       for l, loss in enumerate(args.loss_functions):
         # Calculate histogram
         drop_bg = loss == "garbage"  #  Drop the background class
-        kn_hist, kn_edges, unk_hist, unk_edges = openset_imagenet.util.get_histogram(
-            test[protocol][loss],
-            unk_label=unk_label,
-            metric='score',
-            bins=bins,
-            drop_bg=drop_bg
-        )
+        if test[protocol][loss] is not None:
+          kn_hist, kn_edges, unk_hist, unk_edges = openset_imagenet.util.get_histogram(
+              test[protocol][loss],
+              unk_label=unk_label,
+              metric='score',
+              bins=bins,
+              drop_bg=drop_bg
+          )
+        else:
+          kn_hist, kn_edges, unk_hist, unk_edges = [], [0], [], [0]
         # Plot histograms
         axs[index].stairs(kn_hist, kn_edges, fill=True, color=fill_kn, edgecolor=edge_kn, linewidth=1)
         axs[index].stairs(unk_hist, unk_edges, fill=True, color=fill_unk, edgecolor=edge_unk, linewidth=1)
@@ -284,14 +290,17 @@ def main():
   pdf = PdfPages(args.plots)
   try:
     # plot OSCR
+    print("Plotting OSCR curves")
     val, test = plot_OSCR(args)
     pdf.savefig(bbox_inches='tight', pad_inches = 0)
 
     # plot confidences
+    print("Plotting confidence plots")
     plot_confidences(args)
     pdf.savefig(bbox_inches='tight', pad_inches = 0)
 
     # plot histograms
+    print("Plotting softmax histograms")
     plot_softmax(args, test)
     pdf.savefig(bbox_inches='tight', pad_inches = 0)
 

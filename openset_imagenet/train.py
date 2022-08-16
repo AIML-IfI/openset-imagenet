@@ -11,6 +11,7 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from vast.tools import set_device_gpu, set_device_cpu, device
+import vast
 from loguru import logger
 from .metrics import confidence, auc_score_binary, auc_score_multiclass
 from .dataset import ImagenetDataset
@@ -59,7 +60,7 @@ def save_checkpoint(f_name, model, epoch, opt, best_score_, scheduler=None):
     torch.save(data, f_name)
 
 
-def load_checkpoint(model, checkpoint, opt=None, device="cpu", scheduler=None):
+def load_checkpoint(model, checkpoint, opt=None, scheduler=None):
     """ Loads a checkpoint, if the model was saved using DistributedDataParallel, removes the word
     'module' from the state_dictionary keys to load it in a single device. If fine-tuning model then
     optimizer should be none to start from clean optimizer parameters.
@@ -73,7 +74,8 @@ def load_checkpoint(model, checkpoint, opt=None, device="cpu", scheduler=None):
     """
     file_path = pathlib.Path(checkpoint)
     if file_path.is_file():  # First check if file exists
-        checkpoint = torch.load(file_path, map_location=device)
+#        breakpoint()
+        checkpoint = torch.load(file_path, map_location=vast.tools._device)
         key = list(checkpoint["model_state_dict"].keys())[0]
         # If module was saved as DistributedDataParallel then removes the world "module"
         # from dictionary keys
@@ -345,6 +347,7 @@ def worker(cfg):
     model = ResNet50(fc_layer_dim=n_classes,
                      out_features=n_classes,
                      logit_bias=False)
+    device(model)
 
     # Create optimizer
     if cfg.opt.type == "sgd":
@@ -381,10 +384,6 @@ def worker(cfg):
         logger.info(f"Best score of loaded model: {BEST_SCORE:.3f}. 0 is for fine tuning")
         logger.info(f"Loaded {cfg.checkpoint} at epoch {START_EPOCH}")
 
-    device(model)
-
-    # Set the final epoch
-    cfg.epochs = START_EPOCH + cfg.epochs
 
     # Print info to console and setup summary writer
 
@@ -459,12 +458,14 @@ def worker(cfg):
 
         # save best model and current model
         ckpt_name = str(cfg.output_directory / cfg.name) + "_curr.pth"
+        save_checkpoint(ckpt_name, model, epoch, opt, curr_score, scheduler=scheduler)
+
         if curr_score > BEST_SCORE:
             BEST_SCORE = curr_score
             ckpt_name = str(cfg.output_directory / cfg.name) + "_best.pth"
             # ckpt_name = f"{cfg.name}_best.pth"  # best model
             logger.info(f"Saving best model {ckpt_name} at epoch: {epoch}")
-        save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
+            save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
 
         # Early stopping
         if cfg.patience > 0:

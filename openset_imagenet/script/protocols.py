@@ -12,23 +12,23 @@ def get_args():
     """
     parser = argparse.ArgumentParser("Imagenet Protocols Parameters", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        "--prot",
+        "--protocols",
         type=int,
         nargs="+",
         default=(1,2,3),
         help="Open set protocol: 1, 2 or 3")
     parser.add_argument(
-        "--imagenet-dir",
+        "--imagenet-directory",
         type=Path,
         default="/local/scratch/datasets/ImageNet/ILSVRC2012/",
         help="Path to imagenet ILSVRC2012 dataset, it must contain train and val folders")
     parser.add_argument(
-        "--metadata-dir",
+        "--metadata-directory",
         type=Path,
         default="/local/scratch/datasets/ImageNet/ILSVRC2012/robustness",
         help="Directory of metadata files (imagenet_class_index.json, wordnet.is_a.txt, words.txt)")
     parser.add_argument(
-        "--out-dir",
+        "--output-directory",
         type=Path,
         default="protocols",
         help="Directory to save protocol files")
@@ -43,11 +43,11 @@ def get_args():
 
 def main():
     args = get_args()
-    for prot in args.prot:
+    for prot in args.protocols:
         protocol = OpenSetProtocol(
-            imagenet_dir=args.imagenet_dir,
-            metadata_path=args.metadata_dir,
+            imagenet_dir=args.imagenet_directory,
+            metadata_path=args.metadata_directory,
             protocol_num=prot)
         protocol.create_dataset(random_state=args.seed)
         protocol.print_data()
-        protocol.save_datasets_to_csv(args.out_dir)
+        protocol.save_datasets_to_csv(args.output_directory)
