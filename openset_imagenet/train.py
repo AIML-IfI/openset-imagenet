@@ -156,9 +156,11 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
     if cfg.loss.type == "garbage":
         min_unk_score = 0.
         unknown_class = n_classes - 1
+        last_valid_class = -1
     else:
         min_unk_score = 1. / n_classes
         unknown_class = -1
+        last_valid_class = None
 
 
     model.eval()
@@ -186,7 +188,8 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
             scores=all_scores,
             target_labels=all_targets,
             offset=min_unk_score,
-            unknown_class = unknown_class)
+            unknown_class = unknown_class,
+            last_valid_class = last_valid_class)
         if kn_count:
             trackers["conf_kn"].update(kn_conf, kn_count)
         if neg_count:

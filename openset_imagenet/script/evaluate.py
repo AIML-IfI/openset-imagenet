@@ -124,6 +124,7 @@ def main():
     suffix = "_best" if args.use_best else "_curr"
     model = openset_imagenet.ResNet50(fc_layer_dim=n_classes, out_features=n_classes, logit_bias=False)
     start_epoch, best_score = openset_imagenet.train.load_checkpoint(model, args.output_directory / (args.loss+suffix+".pth"))
+    print(f"Taking model from epoch {start_epoch} that achieved best score {best_score}")
     device(model)
 
     print("========== Evaluating ==========")

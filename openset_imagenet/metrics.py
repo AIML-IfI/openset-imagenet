@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as f  # It was torch.functional as f
 
 
-def confidence(scores, target_labels, offset=0., unknown_class = -1):
+def confidence(scores, target_labels, offset=0., unknown_class = -1, last_valid_class = None):
     """ Returns model's confidence, Taken from https://github.com/Vastlab/vast/tree/main/vast.
 
     Args:
@@ -13,6 +13,7 @@ def confidence(scores, target_labels, offset=0., unknown_class = -1):
         target_labels(tensor): Target label of the samples.
         offset(float): Confidence offset value, typically 1/number_of_classes.
         unknown_class(int) which index to consider as unknown
+        last_valid_class(int or None) which classes to predict; can be None for all and -1 for BG approach
 
     Returns:
         kn_conf: Confidence of known samples.
@@ -21,29 +22,22 @@ def confidence(scores, target_labels, offset=0., unknown_class = -1):
         neg_count Count of negative samples.
     """
     with torch.no_grad():
-        known = target_labels != unknown_class
+        unknown = target_labels == unknown_class
+        known = torch.logical_and(target_labels >= 0, ~unknown)
         kn_count = sum(known).item()    # Total known samples in data
-        neg_count = sum(~known).item()  # Total negative samples in data
+        neg_count = sum(unknown).item()  # Total negative samples in data
         kn_conf = 0.0
         neg_conf = 0.0
         if kn_count:
             # Average confidence known samples
             kn_conf = torch.sum(scores[known, target_labels[known]]).item() / kn_count
         if neg_count:
-            # Average confidence unknown samples
-            if unknown_class < 0:
-                # we have negative labels in the validation set
-                neg_conf = torch.sum(
-                    1.0
-                    + offset
-                    - torch.max(scores[~known], dim=1)[0]
-                ).item() / neg_count
-            else:
-                # we have no negative labels, so we have a garbage class
-                neg_conf = torch.sum(
-                    1.0
-                    - torch.max(scores[~known,:unknown_class], dim=1)[0]
-                ).item() / neg_count
+            # we have negative labels in the validation set
+            neg_conf = torch.sum(
+                1.0
+                + offset
+                - torch.max(scores[unknown,:last_valid_class], dim=1)[0]
+            ).item() / neg_count
 
     return kn_conf, kn_count, neg_conf, neg_count
 

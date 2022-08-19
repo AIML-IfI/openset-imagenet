@@ -33,17 +33,25 @@ def get_args():
         default="protocols",
         help="Directory to save protocol files")
     parser.add_argument(
+        "--tex-files", "-t",
+        type = Path,
+        nargs="+",
+        help = "Write the list of classes into the provided files, one per protocol"
+        )
+    parser.add_argument(
         "--seed",
         type=int,
         default=42,
         help="Integer random seed; handle with care: different seeds will provide different protocols!")
 
-    parser = parser.parse_args()
-    return parser
+    args = parser.parse_args()
+    if args.tex_files is not None and len(args.tex_files) != len(args.protocols):
+        raise ValueError(f"If specified, the number of --tex-files {len(args.tex_files)} and --protocols {len(args.protocols)} need to be identical")
+    return args
 
 def main():
     args = get_args()
-    for prot in args.protocols:
+    for i, prot in enumerate(args.protocols):
         protocol = OpenSetProtocol(
             imagenet_dir=args.imagenet_directory,
             metadata_path=args.metadata_directory,
@@ -51,3 +59,5 @@ def main():
         protocol.create_dataset(random_state=args.seed)
         protocol.print_data()
         protocol.save_datasets_to_csv(args.output_directory)
+        if args.tex_files:
+            protocol.write_class_list(args.tex_files[i])

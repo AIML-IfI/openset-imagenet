@@ -64,6 +64,7 @@ You can run:
 where `[config]` is the configuration file, which is by default `config/train.yaml`.
 You can also select some of the `--protocols` to run on, as well as some of the `--loss-functions`, or change the `--output-directory`.
 The `-g` option can take several GPU indexes, and trainings will be executed in parallel if more than one GPU index is specified.
+In case the training stops early for unknown reasons, you can safely use the `--continue` option to continue training from the last epoch.
 
 When you have a single GPU available, start the script and book a trip to Hawaii, results will finish in about a week.
 The more GPUs you can spare, the faster the training will end.
@@ -71,7 +72,7 @@ The more GPUs you can spare, the faster the training will end.
 ### Evaluation
 
 Finally, the `plot_imagenet.py` script can be used to perform the plots as we have them in the paper.
-This script will use all trained models (as resulting from the `train_imagenet_all.py` script), extract the features and scores for the validation and test set, and plots into a single file (`ImageNet.pdf` by default):
+This script will use all trained models (as resulting from the `train_imagenet_all.py` script), extract the features and scores for the validation and test set, and plots into a single file (`Results_last.pdf` by default), as well as providing the table from the appendix as a LaTeX table (default: `Results_last.tex`)
 
 1. OSCR curves are presented in Figure 2 of the paper, on the vaidation and test sets.
 2. Confidence propagation plots as in Figure 3, for all three loss functions on the validation set.
@@ -82,8 +83,14 @@ You can also modify other parameters, see:
 
     plot_imagenet.py --help
 
-but it is recommended to keep the default values to be able to regenerate the plots from the paper.
+For example, you can specify that you want to use the best model based on our confidence measure, via `--use-best`.
+For the remaining parameters it is recommended to keep the default values to be able to regenerate the plots from the paper.
 
+The list of commands to reprocude all table and figures, including the supplemental material, is:
+
+    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --gpu [GPU_INDEX]
+    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --linear
+    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --use-best --gpu [GPU_INDEX]
 
 ## Getting help
 

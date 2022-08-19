@@ -262,6 +262,99 @@ class OpenSetProtocol:
         classes = [self.get_label(p) for p in classes]
         self.data['test'] = list(zip(images, classes))
 
+    def write_class_list(self, texfile):
+        """Lists all subclasses for the protocols"""
+        # get subclasses for the protocol and for each type
+        known = []
+        negative = []
+        unknown = []
+
+        def extend(list, super_id):
+            list.append((super_id, True))
+            list.extend([(desc_id, False) for desc_id in self.get_descendants_wid(super_id)])
+
+
+        if self.protocol == 1:
+            for super_id in self.kn_superclasses:
+                extend(known, super_id)
+            for super_id in self.neg_superclasses:
+                extend(negative, super_id)
+            for super_id in self.unk_superclasses:
+                extend(unknown, super_id)
+
+        elif self.protocol == 2:
+            all_descendants = []
+            for super_id in self.kn_superclasses:
+                all_descendants.extend(self.get_descendants_wid(super_id))
+                known.append((super_id, True))
+                negative.append((super_id, True))
+            # Shuffles the descendant list and selects half for kn and half for negatives
+            # random.Random(seed).shuffle(all_descendants)
+            middle = len(all_descendants) // 2
+            known.extend((desc_id, False) for desc_id in all_descendants[:middle])
+            negative.extend((desc_id, False) for desc_id in all_descendants[middle:])
+            for super_id in self.unk_superclasses:
+                extend(unknown, super_id)
+
+        elif self.protocol == 3:
+            for super_id in self.kn_superclasses:
+                known.append((super_id, True))
+                negative.append((super_id, True))
+                unknown.append((super_id, True))
+
+                descendants = self.get_descendants_wid(super_id)
+                for idx, class_ in enumerate(descendants):
+                    if idx % 2 == 0:
+                        known.append((class_, False))
+                    elif idx % 2 != 0 and idx % 3 == 0:
+                        unknown.append((class_, False))
+                    elif idx % 2 != 0 and idx % 3 != 0:
+                        negative.append((class_, False))
+            for super_id in self.unk_superclasses:
+                extend(unknown, super_id)
+
+        max_len = max(len(l) for l in (known, negative, unknown))
+
+
+        with open(texfile, "w") as f:
+
+            def write(list, index, end=" & "):
+                if index < len(list):
+                    id, super = list[index]
+                    if super:
+                        f.write("\\it ")
+                    else:
+                        f.write("\\qquad ")
+                    f.write(id + " & ")
+                    if super:
+                        f.write("\\it ")
+                    else:
+                        f.write("\\qquad ")
+                    f.write(self.hierarchy.get_node(id).name.split(',')[0][:20])
+                else:
+                    f.write(" & ")
+                f.write(end)
+
+            for i in range(max_len):
+                # write known class
+                write(known, i)
+                write(negative, i)
+                write(unknown, i, end="\\\\\n")
+
+
+    def image_counts(self, which_set):
+        data = self.data[which_set]
+        k, n, u = 0,0,0
+        for d in data:
+            if d[1] == -1:
+                n += 1
+            elif d[1] == -2:
+                u += 1
+            else:
+                k += 1
+        return k, n, u
+
+
     def print_data(self):
         """ Prints general information about the protocol"""
 
@@ -278,3 +371,12 @@ class OpenSetProtocol:
         print(f"Known classes: {len(self.kn_classes)}")
         print(f"Negative classes: {len(self.neg_classes)}")
         print(f"Unknown classes: {len(self.unk_classes)} \n")
+        print(f"Validation dataset size: {len(self.data['test'])}")
+
+        counts = {"k":{}, "n": {}, "u": {}}
+        for t in ("train", "val", "test"):
+            counts["k"][t], counts["n"][t], counts["u"][t] = self.image_counts(t)
+
+        print("-----------------Image Counts---------------")
+        for v in counts:
+            print(f"{v} image counts: {' / '.join(str(counts[v][f]) for f in counts[v])}")
