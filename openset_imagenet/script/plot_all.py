@@ -232,6 +232,7 @@ def plot_confidences(args):
     return zip(*sorted(known_data.items())), zip(*sorted(unknown_data.items()))
 
   max_len = 0
+  min_len = 100
   for index, protocol in enumerate(args.protocols):
       ax_kn = axs[2 * index]
       ax_unk = axs[2 * index + 1]
@@ -249,6 +250,7 @@ def plot_confidences(args):
         ax_unk.plot(step_unk, val_unk, linewidth=linewidth, label = loss + ' unk', color=color_palette[c])
         if len(step_kn):
           max_len = max(max_len, max(step_kn))
+          min_len = min(min_len, min(step_kn))
       # set titles
       ax_kn.set_title(f"$P_{protocol}$ Known", fontsize=font_size)
       ax_unk.set_title(f"$P_{protocol}$ Negative", fontsize=font_size)
@@ -261,7 +263,7 @@ def plot_confidences(args):
       # set the tick parameters for the current axis handler
       ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
       ax.tick_params(labelbottom=True, labeltop=False, labelleft=True, labelright=False, labelsize=font_size)
-      ax.set_xlim(0, max_len)
+      ax.set_xlim(min_len, max_len)
       ax.set_ylim(0, 1)
       # Thicklocator parameters
       ax.yaxis.set_major_locator(MaxNLocator(5, prune='lower'))
