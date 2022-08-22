@@ -64,6 +64,11 @@ def get_args():
       help = "If set, OSCR curves will be plot with linear FPR axis"
     )
     parser.add_argument(
+      "--sort-by-loss", "-s",
+      action = "store_true",
+      help = "If selected, the plots will compare across protocols and not across algorithms"
+    )
+    parser.add_argument(
         "--output-directory", "-o",
         type=pathlib.Path,
         default="experiments",
@@ -101,6 +106,8 @@ def get_args():
     args = parser.parse_args()
 
     suffix = 'linear' if args.linear else 'best' if args.use_best else 'last'
+    if args.sort_by_loss:
+      suffix += "_by_loss"
     args.plots = args.plots or f"Results_{suffix}.pdf"
     args.table = args.table or f"Results_{suffix}.tex"
     return args
@@ -151,16 +158,28 @@ def plot_OSCR(args, scores):
     font = 15
     scale = 'linear' if args.linear else 'semilog'
 
-    for index, p in enumerate(args.protocols):
-      val = {l:scores[p][l]["val"] if scores[p][l] is not None else None for l in args.loss_functions}
-      test = {l:scores[p][l]["test"] if scores[p][l] is not None else None for l in args.loss_functions}
-      openset_imagenet.util.plot_oscr(arrays=val, scale=scale, title=f'$P_{p}$ Negative',
-                    ax_label_font=font, ax=axs[index], unk_label=-1,)
-      openset_imagenet.util.plot_oscr(arrays=test, scale=scale, title=f'$P_{p}$ Unknown',
-                    ax_label_font=font, ax=axs[index+P], unk_label=-2,)
-    # Manual legend
-    axs[-P].legend(args.labels, frameon=False,
-              fontsize=font - 1, bbox_to_anchor=(0.8, -0.12), ncol=3, handletextpad=0.5, columnspacing=1, markerscale=3)
+    if args.sort_by_loss:
+      for index, l in enumerate(args.loss_functions):
+        val = [scores[p][l]["val"] if scores[p][l] is not None else None for p in args.protocols]
+        test = [scores[p][l]["test"] if scores[p][l] is not None else None for p in args.protocols]
+        openset_imagenet.util.plot_oscr(arrays=val, methods=[l]*len(args.protocols), scale=scale, title=f'{args.labels[index]} Negative',
+                      ax_label_font=font, ax=axs[index], unk_label=-1,)
+        openset_imagenet.util.plot_oscr(arrays=test, methods=[l]*len(args.protocols), scale=scale, title=f'{args.labels[index]} Unknown',
+                      ax_label_font=font, ax=axs[index+P], unk_label=-2,)
+      # Manual legend
+      axs[-P].legend([f"$P_{p}$" for p in args.protocols], frameon=False,
+                fontsize=font - 1, bbox_to_anchor=(0.8, -0.12), ncol=3, handletextpad=0.5, columnspacing=1, markerscale=3)
+    else:
+      for index, p in enumerate(args.protocols):
+        val = [scores[p][l]["val"] if scores[p][l] is not None else None for l in args.loss_functions]
+        test = [scores[p][l]["test"] if scores[p][l] is not None else None for l in args.loss_functions]
+        openset_imagenet.util.plot_oscr(arrays=val, methods=args.loss_functions, scale=scale, title=f'$P_{p}$ Negative',
+                      ax_label_font=font, ax=axs[index], unk_label=-1,)
+        openset_imagenet.util.plot_oscr(arrays=test, methods=args.loss_functions, scale=scale, title=f'$P_{p}$ Unknown',
+                      ax_label_font=font, ax=axs[index+P], unk_label=-2,)
+      # Manual legend
+      axs[-P].legend(args.labels, frameon=False,
+                fontsize=font - 1, bbox_to_anchor=(0.8, -0.12), ncol=3, handletextpad=0.5, columnspacing=1, markerscale=3)
     # Axis properties
     for ax in axs:
         ax.label_outer()
@@ -352,7 +371,7 @@ def conf_and_ccr_table(args, scores, epochs):
 
 
           # write loss and confidences
-          table.write(f"$P_{protocol}$ - {args.labels[l]} & {c[0]:1.3f} & {c[2]:1.3f}")
+          table.write(f"$P_{protocol}$ - {args.labels[l]} & {epochs[protocol][loss][0]} & {c[0]:1.3f} & {c[2]:1.3f}")
 
           for q in query:
               idx, fpr = find_nearest(fpr_, q)
@@ -381,13 +400,13 @@ def main():
     plot_OSCR(args, scores)
     pdf.savefig(bbox_inches='tight', pad_inches = 0)
 
-    if not args.linear and not args.use_best:
+    if not args.linear and not args.use_best and not args.sort_by_loss:
       # plot confidences
       print("Plotting confidence plots")
       plot_confidences(args)
       pdf.savefig(bbox_inches='tight', pad_inches = 0)
 
-    if not args.linear:
+    if not args.linear and not args.sort_by_loss:
       # plot histograms
       print("Plotting softmax histograms")
       plot_softmax(args, scores)
@@ -397,7 +416,7 @@ def main():
     pdf.close()
 
   # create result table
-  if not args.linear:
+  if not args.linear and not args.sort_by_loss:
     print("Creating Table")
     print("Writing file", args.table)
     conf_and_ccr_table(args, scores, epoch)

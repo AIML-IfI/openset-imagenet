@@ -56,7 +56,7 @@ The `-g` option can be used to specify that the training should be performed on 
 ### Training of all the models in the paper
 
 The `train_imagenet_all.py` script provides a shortcut to train a model with three different loss functions on three different protocols.
-It relies on the same configuration file (`config/train.yaml`) where some parts are modifed during execution.
+It relies on the same configuration file (`config/train.yaml`) where some parts are modified during execution.
 You can run:
 
     train_imagenet_all.py --configuration [config] -g [list-of-gpus]
@@ -74,7 +74,7 @@ The more GPUs you can spare, the faster the training will end.
 Finally, the `plot_imagenet.py` script can be used to perform the plots as we have them in the paper.
 This script will use all trained models (as resulting from the `train_imagenet_all.py` script), extract the features and scores for the validation and test set, and plots into a single file (`Results_last.pdf` by default), as well as providing the table from the appendix as a LaTeX table (default: `Results_last.tex`)
 
-1. OSCR curves are presented in Figure 2 of the paper, on the vaidation and test sets.
+1. OSCR curves are presented in Figure 2 of the paper, on the validation and test sets.
 2. Confidence propagation plots as in Figure 3, for all three loss functions on the validation set.
 3. Histograms of softmax scores as in Figure 4 of the paper.
 
@@ -84,13 +84,16 @@ You can also modify other parameters, see:
     plot_imagenet.py --help
 
 For example, you can specify that you want to use the best model based on our confidence measure, via `--use-best`.
+You can also regenerate the linear OSCR plots via `--linear`.
+You can sort the plots by loss so that you can compare across protocols via `--sort-by-loss`.
 For the remaining parameters it is recommended to keep the default values to be able to regenerate the plots from the paper.
 
 The list of commands to reprocude all table and figures, including the supplemental material, is:
 
-    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --gpu [GPU_INDEX]
+    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --gpu [gpu_index]
     plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --linear
-    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --use-best --gpu [GPU_INDEX]
+    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --use-best --gpu [gpu_index]
+    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --sort-by-loss
 
 ## Getting help
 

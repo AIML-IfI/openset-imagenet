@@ -167,26 +167,28 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     return ax
 
 
-def plot_oscr(arrays, scale='linear', title=None, ax_label_font=13,
+def plot_oscr(arrays, methods, scale='linear', title=None, ax_label_font=13,
               ax=None, unk_label=-1,):
 
     color_palette = cm.get_cmap('tab10', 10).colors
 
-    for idx, exp_name in enumerate(arrays):
-        has_bg = exp_name == "garbage"
+    assert len(arrays) == len(methods)
 
-        if arrays[exp_name] is None:
+    for idx, array in enumerate(arrays):
+        has_bg = methods[idx] == "garbage"
+
+        if array is None:
             ccr, fpr = [], []
         else:
-            gt = arrays[exp_name]['gt']
-            scores = arrays[exp_name]['scores']
+            gt = array['gt']
+            scores = array['scores']
 
             if has_bg:    # If the loss is BGsoftmax then removes the background class
                 scores = scores[:, :-1]
             ccr, fpr = calculate_oscr(gt, scores, unk_label)
 
         ax = plot_single_oscr(x=fpr, y=ccr,
-                              ax=ax, exp_name=exp_name,
+                              ax=ax, exp_name=methods[idx],
                               color=color_palette[idx], baseline=False,
                               scale=scale)
     if title is not None:
