@@ -112,7 +112,7 @@ def main():
     if args.gpu is not None:
         set_device_gpu(index=args.gpu)
     else:
-        print("No GPU device selected, evalaution will be slow")
+        print("No GPU device selected, evaluation will be slow")
         set_device_cpu()
 
     if args.loss == "garbage":
