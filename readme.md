@@ -1,10 +1,20 @@
-# Open set on Imagenet
-Implementation of the experiments performed in Large-Scale Open-Set Classification Protocols for ImageNet.
+# Open set on ImageNet
+Implementation of the experiments performed in Large-Scale Open-Set Classification Protocols for ImageNet, which has been accepted for publication in WACV 2023.
+You can find a [pre-print of the paper on arXiv](http://www.arxiv.org/...).
+If you make use of our evaluation protocols or this implementation, please cite the following paper:
+
+    @inproceedings{palechor2023openset,
+        author       = {Palechor Anacona, Jesus Andres and Bhoumik, Annesha and G\"unther, Manuel},
+        booktitle    = {Winter Conference on Applications of Computer Vision (WACV)},
+        title        = {Large-Scale Open-Set Classification Protocols for {ImageNet}},
+        year         = {2023},
+        organization = {IEEE}
+    }
 
 ## Data
 
 All scripts rely on the ImageNet dataset using the ILSVRC 2012 data.
-If you do not have a copy yet, it can be downloaded from Kaggle (untested): https://www.kaggle.com/competitions/imagenet-object-localization-challenge/overview
+If you do not have a copy yet, it can be downloaded from Kaggle (untested): https://www.kaggle.com/competitions/imagenet-object-localization-challenge/overview.
 The protocols rely on the `robustness` library, which in turn relies on some files that have been distributed with the ImageNet dataset some time ago, but they are not available anymore.
 With a bit of luck, you can find the files somewhere online:
 
