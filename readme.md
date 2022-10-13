@@ -11,6 +11,10 @@ If you make use of our evaluation protocols or this implementation, please cite 
         organization = {IEEE}
     }
 
+## LICENSE
+This code package is open-source based on the BSD license.
+Please see `LICENSE` for details.
+
 ## Data
 
 All scripts rely on the ImageNet dataset using the ILSVRC 2012 data.
@@ -107,4 +111,4 @@ The list of commands to reprocude all table and figures, including the supplemen
 
 ## Getting help
 
-In case of trouble, feel free to contact us under [guenther@ifi.uzh.ch](mailto:guenther@ifi.uzh.ch?subject=Open-Set%20ImageNet%20Protocols)
+In case of trouble, feel free to contact us under [siebenkopf@googlemail.com](mailto:siebenkopf@googlemail.com?subject=Open-Set%20ImageNet%20Protocols)
