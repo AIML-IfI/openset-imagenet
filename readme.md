@@ -1,6 +1,6 @@
 # Open set on ImageNet
 Implementation of the experiments performed in Large-Scale Open-Set Classification Protocols for ImageNet, which has been accepted for publication in WACV 2023.
-You can find a [pre-print of the paper on arXiv](http://www.arxiv.org/...).
+You can find a [pre-print of the paper including our supplemental material on arXiv](https://arxiv.org/abs/2210.06789).
 If you make use of our evaluation protocols or this implementation, please cite the following paper:
 
     @inproceedings{palechor2023openset,
@@ -102,7 +102,7 @@ You can also regenerate the linear OSCR plots via `--linear`.
 You can sort the plots by loss so that you can compare across protocols via `--sort-by-loss`.
 For the remaining parameters it is recommended to keep the default values to be able to regenerate the plots from the paper.
 
-The list of commands to reprocude all table and figures, including the supplemental material, is:
+The list of commands to reproduce all table and figures, including the supplemental material, is:
 
     plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --gpu [gpu_index]
     plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --linear
