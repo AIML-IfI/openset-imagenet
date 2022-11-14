@@ -60,14 +60,14 @@ class ResNet50Proser(nn.Module):
         manifold mixup is performed after the third group of blocks (i.e. layer3). By following
         this approach, the manifold mixup is performed after the penultimate group/layer
         """
-        x = self.resnet_base.conv1(x)
-        x = self.resnet_base.bn1(x)
-        x = self.resnet_base.relu(x)
-        x = self.resnet_base.maxpool(x)
+        x = self.resnet_base.resnet_base.conv1(x)
+        x = self.resnet_base.resnet_base.bn1(x)
+        x = self.resnet_base.resnet_base.relu(x)
+        x = self.resnet_base.resnet_base.maxpool(x)
 
-        x = self.resnet_base.layer1(x)
-        x = self.resnet_base.layer2(x)
-        x = self.resnet_base.layer3(x)
+        x = self.resnet_base.resnet_base.layer1(x)
+        x = self.resnet_base.resnet_base.layer2(x)
+        x = self.resnet_base.resnet_base.layer3(x)
         return x
 
     def last_blocks(self, x):
@@ -79,19 +79,19 @@ class ResNet50Proser(nn.Module):
         manifold mixup is performed after the third group of blocks (i.e. layer3). By following
         this approach, the manifold mixup is performed after the penultimate group/layer
         """
-        x = self.resnet_base.layer4(x)
+        x = self.resnet_base.resnet_base.layer4(x)
 
-        x = self.resnet_base.avgpool(x)
+        x = self.resnet_base.resnet_base.avgpool(x)
         x = torch.flatten(x, 1)
-        features = self.resnet_base.fc(x)
+        features = self.resnet_base.resnet_base.fc(x)
 
         # apply our standard output layer
-        logits = self.logits(features)
+        logits = self.resnet_base.logits(features)
         # apply our dummy layer, get only the maximum output
-        dummy = torch.max(self.dummy(features), dim=1)
+        dummy = torch.max(self.dummy_classifier(features), dim=1)[0]
         return logits, dummy, features
 
-    def forawrd(self, image):
+    def forward(self, image):
         """Extracts the logits, the dummy classiifers and the deep features for the given input """
         intermediate_features = self.first_blocks(image)
         return self.last_blocks(intermediate_features)

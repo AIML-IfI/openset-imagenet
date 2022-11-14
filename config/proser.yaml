@@ -2,6 +2,7 @@
 name: proser
 checkpoint:             # Relative path to checkpoint
 log_name: proser.log    # name of the file with training info
+train_mode: train       # either: {train, finetune}
 gpu:                    # index of a GPU, if available
 parallel: off           # run in parallel
 
@@ -26,10 +27,12 @@ algorithm:
   type: proser
 
   # Proser Parameters
-  labmda1: 1.
+  lambda0: 0.1
+  lambda1: 1.
   lambda2: 1.
   alpha: 1.
-  base_model: experiments/protocol_{}/softmax_curr.pth
+  dummy_count: 2
+  base_model: experiments/Protocol_{}/softmax_curr.pth
 
 
 # Optimizer Parameters

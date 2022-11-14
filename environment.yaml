@@ -1,4 +1,4 @@
-name: openset-imagenet
+name: openset-imagenet-comparison
 
 channels:
   - default
