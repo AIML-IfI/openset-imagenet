@@ -171,7 +171,9 @@ def plot_oscr(arrays, methods, scale='linear', title=None, ax_label_font=13,
               ax=None, unk_label=-1,):
 
     color_palette = cm.get_cmap('tab10', 10).colors
-
+    #HB
+    print( len(arrays),  len(methods) )
+    
     assert len(arrays) == len(methods)
 
     for idx, array in enumerate(arrays):

@@ -8,13 +8,21 @@ import torch
 from vast.tools import set_device_gpu, set_device_cpu, device
 from torchvision import transforms as tf
 from torch.utils.data import DataLoader
-
+from vast import opensetAlgos
+from openset_imagenet import approaches
+from openset_imagenet import openset_algos
 import openset_imagenet
-
+import pickle
 
 def get_args():
     """Gets the evaluation parameters."""
     parser = argparse.ArgumentParser("Get parameters for evaluation", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    
+    parser.add_argument(
+        "configuration",
+        type = Path,
+        help = "The configuration file that defines the experiment"
+    )
 
     # directory parameters
     parser.add_argument(
@@ -78,10 +86,16 @@ def get_args():
     return args
 
 
+def main(command_line_options = None):
 
-def main():
     args = get_args()
-
+    #args = get_args(command_line_options)
+    cfg = openset_imagenet.util.load_yaml(args.configuration)
+    if args.gpu:
+        cfg.gpu = args.gpu
+    cfg.protocol = args.protocol 
+    print("works?")
+    
     # Create transformations
     transform_val = tf.Compose(
         [tf.Resize(256),
@@ -127,6 +141,22 @@ def main():
     print(f"Taking model from epoch {start_epoch} that achieved best score {best_score}")
     device(model)
 
+    
+    print("reading openmax/evm model for the parameter combo")
+
+    model_to_test = 'experiments/Protocol_1/p1_traincls(kk)_evm_TS_10_DM_1.50_CT_1.00_cosine_dnn_softmax.pkl'
+    model_to_test = 'experiments/Protocol_1/p1_traincls(kk)_openmax_TS_1.0_DM_1.50_cosine_dnn_softmax.pkl' #p1_traincls(kk)_openmax_TS_1.0_DM_1.50_cosine_dnn_softmax.pkl
+    file_handler = open(model_to_test,'rb')
+    model_dict = pickle.load(file_handler)
+    
+    if cfg.alg == 'OpenMax':
+        alg_hyperparameters=[cfg.hyp.tailsize, cfg.hyp.distance_multiplier, cfg.hyp.translateAmount, cfg.hyp.distance_metric, cfg.hyp.alpha]
+    elif cfg.alg == 'EVM':
+        alg_hyperparameters = [cfg.evm_parameters.tailsize, cfg.evm_parameters.cover_threshold,cfg.evm_parameters.distance_multiplier, cfg.evm_parameters.distance_metric, cfg.evm_parameters.chunk_size]
+        
+    print(f'{(cfg.alg).lower()}_hyperparams')
+    hyperparams = getattr(approaches, f'{(cfg.alg).lower()}_hyperparams')(*alg_hyperparameters)
+    
     print("========== Evaluating ==========")
     print("Validation data:")
     # extracting arrays for validation
@@ -134,9 +164,15 @@ def main():
         model=model,
         loader=val_loader
     )
-    file_path = args.output_directory / f"{args.loss}_val_arr{suffix}.npz"
+
+    #scores are being adjusted her through openmax alpha
+    scores = compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams)
+
+    file_path = args.output_directory / f"{args.loss}_{cfg.alg.lower()}_val_arr{suffix}.npz"
     np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
-    print(f"Target labels, logits, features and scores saved in: {file_path}")
+
+    #file_path = args.output_directory / f"{args.loss}_val_arr{suffix}.npz"
+    #np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
 
     # extracting arrays for test
     print("Test data:")
@@ -144,6 +180,51 @@ def main():
         model=model,
         loader=test_loader
     )
+
+    #scores are being adjusted her through openmax alpha
+    scores = compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams)
+
+    file_path = args.output_directory / f"{args.loss}_{cfg.alg.lower()}_test_arr{suffix}.npz"
+    np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
+
+    print(f"Target labels, logits, features and scores saved in: {file_path}")
+
+    
+def compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams):
+    #arrange for openmax inference/alpha 
+    gt, features, logits = torch.Tensor(gt)[:, None], torch.Tensor(features), torch.Tensor(logits)
+    kkc = openset_imagenet.train.collect_pos_classes(gt)
+    #targets, features, logits = postprocess_train_data(gt, features, logits)
+    #print(kkc)
+    pos_classes = openset_imagenet.train.collect_pos_classes(gt)
+    feat_dict, logit_dict = openset_imagenet.train.compose_dicts(gt, features, logits)
+    feat_dict = {k: v.double() for k, v in feat_dict.items()}
+    
+
+    for alpha in hyperparams.alpha:
+        probabilities = list(getattr(opensetAlgos, f'{cfg.alg}_Inference')(pos_classes_to_process=feat_dict.keys(),features_all_classes=feat_dict, args=hyperparams, gpu=cfg.gpu, models=model_dict['model']))
+        dict_probs = dict(list(zip(*probabilities))[1])
+        for idx, key in enumerate(dict_probs.keys()):
+            print(list(logit_dict.keys())[idx], key, type(list(logit_dict.keys())[idx]), type(key))
+            assert key == list(logit_dict.keys())[idx]
+            assert dict_probs[key].shape[1] == logit_dict[key].shape[1]
+            probs_openmax = openset_algos.openmax_alpha(dict_probs[key], logit_dict[key], alpha=alpha, ignore_unknown_class=True)
+            dict_probs[key] = probs_openmax
+
+    all_probs = []
+    for key in dict_probs.keys():
+        all_probs.extend(dict_probs[key].tolist())
+    
+    return all_probs
+    
+
+    exit()
+
+    
     file_path = args.output_directory / f"{args.loss}_test_arr{suffix}.npz"
     np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
     print(f"Target labels, logits, features and scores saved in: {file_path}")
+
+if __name__=='__main__':
+    main()
+    print("enters")
