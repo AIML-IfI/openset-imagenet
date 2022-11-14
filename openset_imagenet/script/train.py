@@ -60,7 +60,10 @@ def main(command_line_options = None):
     config.protocol = args.protocol
     config.output_directory = args.output_directory
 
-    openset_imagenet.train.worker(config)
+    if config.algorithm.type == "dnn":
+        openset_imagenet.train.worker(config)
+    elif config.algorithm.type == "proser":
+        openset_imagenet.proser.worker(config)
 
 
 if __name__ == "__main__":
