@@ -44,7 +44,7 @@ def train_proser(model, data_loader, optimizer, loss_fn, trackers, cfg):
     if not cfg.parallel:
         data_loader = tqdm.tqdm(data_loader)
 
-    mixed_class_label = model.number_of_classes
+    mixed_class_label = model.resnet_base.number_of_classes
 
     # MG comment: I am not sure if this is a good idea.
     # I do not know how batchnorm handles forward to be called several times before backward is called
@@ -78,15 +78,21 @@ def train_proser(model, data_loader, optimizer, loss_fn, trackers, cfg):
         # passing only mixed embeddings created from different classes.
         mixed_middle_layer_features = mixed_middle_layer_features[mixed_labels != mixed_labels[indexes]]
 
-        # forward these to the second part of the network
-        mixed_logits, mixed_dummy_score, _ = model.last_blocks(mixed_middle_layer_features)
-        mixed_logits = torch.cat((mixed_logits, mixed_dummy_score), dim=1)
+        if len(mixed_middle_layer_features):
+            # forward these to the second part of the network
+            mixed_logits, mixed_dummy_score, _ = model.last_blocks(mixed_middle_layer_features)
+            mixed_logits = torch.cat((mixed_logits, mixed_dummy_score[:,None]), dim=1)
+
+            # train the mixed logits to be of the unknown class
+            loss1 = loss_fn(mixed_logits, device(torch.as_tensor([mixed_class_label] * len(mixed_logits))))
+        else:
+            loss1 = device(torch.zeros(1))
 
 
         ##### SECOND PART: clean data
         # get network output for second half of the batch
         clean_logits, clean_dummy_score, _ = model(images[mixed_count:])
-        clean_logits = torch.cat((clean_logits, clean_dummy_score), dim=1)
+        clean_logits = torch.cat((clean_logits, clean_dummy_score[:,None]), dim=1)
 
         # Setting the known class logit to -1e9 to force a classifier placeholder to be the second highest logit.
         modified_clean_logits = clean_logits.clone()
@@ -97,17 +103,15 @@ def train_proser(model, data_loader, optimizer, loss_fn, trackers, cfg):
 
 
         ##### THIRD PART: losses
-        # train the mixed logits to be of the unknown class
-        loss1 = loss_fn(mixed_logits, device(torch.tensor([mixed_class_label] * len(mixed_logits))))
 
         # train the clean outputs with the clean labels
         loss2 = loss_fn(clean_logits, clean_labels)
 
         # (eq. 5 in the paper) 2nd term in l1, forcing a placeholder classifier to be the 2nd closest to the known sample.
-        loss3 = loss_fn(modified_clean_logits, device(torch.tensor([mixed_class_label] * clean_count)))
+        loss3 = loss_fn(modified_clean_logits, device(torch.as_tensor([mixed_class_label] * clean_count)))
 
         # the final loss is a weighted combination of the former
-        j = 0.1 * loss1 + cfg.algorithm.lambda1 * loss2 + cfg.algorithm.lambda2 * loss3
+        j = cfg.algorithm.lambda0 * loss1 + cfg.algorithm.lambda1 * loss2 + cfg.algorithm.lambda2 * loss3
 
         # track results
         trackers["j"].update(j.item(), batch_len)
@@ -165,12 +169,11 @@ def validate_proser(model, data_loader, loss_fn, n_classes, trackers, cfg):
             images = device(images)
             labels = device(labels)
             logits, dummy, features = model(images)
+
+            # compute probabilities for all classes (excluding unknown)
             scores = torch.nn.functional.softmax(logits, dim=1)
 
-            j = loss_fn(logits, labels)
-            trackers["j"].update(j.item(), batch_len)
-
-            # accumulate partial results in empty tensors
+            # store all scores and all targets
             start_ix = i * cfg.batch_size
             all_targets[start_ix: start_ix + batch_len] = labels
             all_scores[start_ix: start_ix + batch_len] = scores
@@ -377,7 +380,6 @@ def worker(cfg):
 
         # Logging metrics to tensorboard object
         writer.add_scalar("train/loss", t_metrics["j"].avg, epoch)
-        writer.add_scalar("val/loss", v_metrics["j"].avg, epoch)
         # Validation metrics
         writer.add_scalar("val/conf_kn", v_metrics["conf_kn"].avg, epoch)
         writer.add_scalar("val/conf_unk", v_metrics["conf_unk"].avg, epoch)
