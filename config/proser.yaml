@@ -1,8 +1,7 @@
 # General Parameters
-name: experiment
+name: proser
 checkpoint:             # Relative path to checkpoint
-log_name: training.log  # name of the file with training info
-train_mode: train       # either: {train, finetune}
+log_name: proser.log    # name of the file with training info
 gpu:                    # index of a GPU, if available
 parallel: off           # run in parallel
 
@@ -22,11 +21,16 @@ patience: 0     # Number of epochs to wait before stopping the training. 0 means
 
 loss:
   type: softmax  # either {entropic, softmax, garbage}
-  # Entropic Parameters
-  w: 1.
 
 algorithm:
-  type: dnn
+  type: proser
+
+  # Proser Parameters
+  labmda1: 1.
+  lambda2: 1.
+  alpha: 1.
+  base_model: experiments/protocol_{}/softmax_curr.pth
+
 
 # Optimizer Parameters
 opt:
@@ -40,38 +44,3 @@ dist:
   distributed: True  # False to use only one GPU # TODO: delete this option
   gpus: 2            # Number of GPUS to use
   port: "8889"       # Default port to communicate.
-
-#openset algorithms
-alg: openmax  #OpenMax EVM threshold
-
-alg_dict:
-  openmax: OpenMax
-  evm: EVM
-  proser: Proser
-  threshold: threshold
-
-#DNN model to use
-dnn_features: "experiments/Protocol_1/softmax_best.pth"
-
-hyp:
-        tailsize: [1]
-        distance_multiplier: [1.5]
-        translateAmount: [1]
-        distance_metric: cosine
-        alpha: [10]
-
-
-evm_parameters:
-        tailsize: [10]
-        cover_threshold: [1]
-        distance_multiplier: [1.5]
-        distance_metric: cosine
-        chunk_size: 100
-train_classes: [kk]
-
-known_unknown_target: -1
-unknown_unknown_target: -2
-
-suffix: _best #or _cur
-
-
