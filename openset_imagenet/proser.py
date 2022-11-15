@@ -18,9 +18,10 @@ from .dataset import ImagenetDataset
 from .model import ResNet50, ResNet50Proser
 from .losses import AverageMeter, EarlyStopping, EntropicOpensetLoss
 import tqdm
-
-
 from .train import set_seeds, save_checkpoint, load_checkpoint
+
+
+
 
 def train_proser(model, data_loader, optimizer, loss_fn, trackers, cfg):
     """ Main training loop.
