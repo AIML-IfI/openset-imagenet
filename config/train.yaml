@@ -15,8 +15,8 @@ data:
 
 # Common parameters
 seed: 42        # Common seed across all source of randomness
-batch_size: 64  # If distributed training the batch size is multiplied by the number of gpus
-epochs: 10
+batch_size: 32  # If distributed training the batch size is multiplied by the number of gpus
+epochs: 1
 workers: 4      # Dataloader number of workers
 patience: 0     # Number of epochs to wait before stopping the training. 0 means no early stopping
 
@@ -25,6 +25,7 @@ loss:
   # Entropic Parameters
   w: 1.
 
+#this may be deleted later
 algorithm:
   type: dnn
 
@@ -42,7 +43,7 @@ dist:
   port: "8889"       # Default port to communicate.
 
 #openset algorithms
-alg: openmax  #OpenMax EVM threshold
+alg: threshold  #openmax evm threshold proser
 
 alg_dict:
   openmax: OpenMax
@@ -67,11 +68,22 @@ evm_parameters:
         distance_multiplier: [1.5]
         distance_metric: cosine
         chunk_size: 100
-train_classes: [kk]
 
+train_classes: [kk]
 known_unknown_target: -1
 unknown_unknown_target: -2
 
 suffix: _best #or _cur
+
+algorithm:
+  type: proser
+
+  # Proser Parameters
+  lambda0: 0.1
+  lambda1: 1.
+  lambda2: 1.
+  alpha: 1.
+  dummy_count: 2
+  base_model: experiments/Protocol_{}/softmax_best.pth
 
 

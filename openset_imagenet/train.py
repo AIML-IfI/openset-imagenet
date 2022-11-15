@@ -310,7 +310,8 @@ def save_models(all_hyper_param_models,pos_classes, cfg):
             hparam_combo_to_model[key] = dict(hparam_combo_to_model[key])
 
             # store models per hyperparameter combination as a (hparam_combo, model)-tuple
-            model_name = f'p{cfg.protocol}_traincls({"+".join(cfg.train_classes)})_{cfg.alg.lower()}_{key}_{cfg.hyp.distance_metric}_dnn_{cfg.loss.type}.pkl'
+            #model_name = f'p{cfg.protocol}_traincls({"+".join(cfg.train_classes)})_{cfg.alg.lower()}_{key}_{cfg.hyp.distance_metric}_dnn_{cfg.loss.type}.pkl'
+            model_name = f'p{cfg.loss.type}_{cfg.alg}_{key}_{cfg.hyp.distance_metric}.pkl'
 
             file_handler = open(cfg.output_directory / model_name, 'wb')
             
@@ -466,6 +467,10 @@ def worker(cfg):
                      logit_bias=False)
     device(model)
 
+    ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.alg) + "_curr.pth"
+    print(ckpt_name)
+
+
     # Create optimizer
     if cfg.opt.type == "sgd":
         opt = torch.optim.SGD(params=model.parameters(), lr=cfg.opt.lr, momentum=0.9)
@@ -482,7 +487,8 @@ def worker(cfg):
     else:
         scheduler = None
 
-    # Resume a training from a checkpoint
+
+        # Resume a training from a checkpoint
     if cfg.checkpoint is not None:
         # Get the relative path of the checkpoint wrt train.py
         if cfg.train_mode == "finetune": # TODO: Simplify the modes, finetune is not necessary
@@ -520,83 +526,6 @@ def worker(cfg):
     logger.info(f"Device: {cfg.gpu}")
     logger.info("Training...")
     writer = SummaryWriter(log_dir=cfg.output_directory, filename_suffix="-"+cfg.log_name)
-
-    if cfg.alg in ["OpenMax", "EVM"]:
-        print(f"Let me try {cfg.alg}")
-        #dnn_dict = torch.load(cfg.dnn_features)
-        logger.debug('\n')
-        #logger.info(f'Info on loaded feature-extracting model: {dnn_dict["model_name"]}, best trainings performance {dnn_dict["eval_metric_opt"]:.6f} ({dnn_dict["eval_metric"]}) achieved in epoch {dnn_dict["epoch_opt"]}')
-        #for k, v in dnn_dict.items():
-        #    print(k)
-        
-        #pretrained_dnn = getattr(architectures, dnn_dict['instance']['architecture'])(
-        #        feature_dim=dnn_dict['instance']['df_dim'], num_classes=dnn_dict['instance']['num_cls'])
-        
-        #pretrained_dnn = getattr(architectures, 'ResNet50_Feature')(feature_dim=512, num_classes=116 )
-        #pretrained_dnn.load_state_dict(
-        #        dnn_dict['model_state_dict'], strict=False)
-        print(cfg.gpu, cfg.alg)
-        
-        #extractor = getattr(data_prep, f'{cfg.alg}Extractor')(pretrained_dnn, cfg.gpu, cfg.alg)
-
-
-        #train_feat, pos_classes = extractor.extract_train_features(train_loader)
-
-            # create model
-        #n_classes = train_ds.label_count
-        suffix = cfg.suffix
-        #model = openset_imagenet.ResNet50(fc_layer_dim=n_classes, out_features=n_classes, logit_bias=False)
-        print(cfg.output_directory)
-        start_epoch, best_score = openset_imagenet.train.load_checkpoint(model, pathlib.Path(cfg.output_directory / (str(cfg.loss.type)+suffix+".pth")))
-        print(f"Taking model from epoch {start_epoch} that achieved best score {best_score}")
-        device(model)
-
-        if cfg.alg == 'OpenMax':
-            alg_hyperparameters=[cfg.hyp.tailsize, cfg.hyp.distance_multiplier, cfg.hyp.translateAmount, cfg.hyp.distance_metric, cfg.hyp.alpha]
-        elif cfg.alg == 'EVM':
-            alg_hyperparameters = [cfg.evm_parameters.tailsize, cfg.evm_parameters.cover_threshold,cfg.evm_parameters.distance_multiplier, cfg.evm_parameters.distance_metric, cfg.evm_parameters.chunk_size]
-        
-        print(f'{(cfg.alg).lower()}_hyperparams')
-        hyperparams = getattr(approaches, f'{(cfg.alg).lower()}_hyperparams')(*alg_hyperparameters)
-
-
-        print("========== Training  ==========")
-
-        print("Feature extraction on training data:")
-       
-       # extracting arrays for training data
-        gt, logits, features, scores = get_arrays(
-                model=model,
-                loader=train_loader
-                )
-        gt, features, logits = torch.Tensor(gt)[:, None], torch.Tensor(features), torch.Tensor(logits)
-
-        kkc = collect_pos_classes(gt)
-
-        targets, features, logits = postprocess_train_data(gt, features, logits)
-        #print(kkc)
-        pos_classes = collect_pos_classes(targets)
-
-        feat_dict, _ = compose_dicts(targets, features, logits)
-        
-        #approach = getattr(approaches, cfg.alg)
-        
-        #print(approach)
-
-        logger.debug('\n')
-        logger.info(f'Starting {cfg.alg} Training Procedure:')
-
-        training_fct = getattr(opensetAlgos, f'{cfg.alg}_Training')
-        
-        #performs training on all parameter combinations
-        #Training method returns iterator over (hparam_combo, (class, {model}))
-        all_hyper_param_models = list(training_fct(
-            pos_classes_to_process=pos_classes, features_all_classes=feat_dict, args=hyperparams, gpu=dev.index, models=None))
-        
-        save_models(all_hyper_param_models, pos_classes, cfg)
-
-
-        exit()
 
     for epoch in range(START_EPOCH, cfg.epochs):
         epoch_time = time.time()
@@ -651,12 +580,12 @@ def worker(cfg):
             f"v:{val_time:.1f}s")
 
         # save best model and current model
-        ckpt_name = str(cfg.output_directory / cfg.name) + "_curr.pth"
+        ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.alg) + "_curr.pth"
         save_checkpoint(ckpt_name, model, epoch, opt, curr_score, scheduler=scheduler)
 
         if curr_score > BEST_SCORE:
             BEST_SCORE = curr_score
-            ckpt_name = str(cfg.output_directory / cfg.name) + "_best.pth"
+            ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.alg) + "_best.pth"
             # ckpt_name = f"{cfg.name}_best.pth"  # best model
             logger.info(f"Saving best model {ckpt_name} at epoch: {epoch}")
             save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
@@ -671,3 +600,6 @@ def worker(cfg):
     # clean everything
     del model
     logger.info("Training finished")
+        
+            
+
