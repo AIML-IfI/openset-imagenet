@@ -39,9 +39,13 @@ dist:
   port: "8889"       # Default port to communicate.
 
 #openset algorithms
-alg: EVM  #OpenMax EVM
+alg: openmax  #OpenMax EVM threshold
 
-#dnn_features: '/home/user/halil/master-suter/code/eosa/eosa/experiments/results/models/p1_traincls(kk)_baseline_resnet50_feature_df512_e200_optAdam(0.001+0.7+0.999).pth'
+alg_dict:
+  openmax: OpenMax
+  evm: EVM
+  proser: Proser
+  threshold: threshold
 
 #DNN model to use
 dnn_features: "experiments/Protocol_1/softmax_best.pth"
