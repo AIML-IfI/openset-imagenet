@@ -60,9 +60,9 @@ def main(command_line_options = None):
     config.protocol = args.protocol
     config.output_directory = args.output_directory
 
-    if config.alg in ['openmax', 'evm']:
+    if config.algorithm.type in ['openmax', 'evm']:
         openset_imagenet.openmax_evm.worker(config)
-    elif config.alg== "threshold":
+    elif config.algorithm.type== "threshold":
         openset_imagenet.train.worker(config)
     elif config.algorithm.type == "proser":
         openset_imagenet.proser.worker(config)

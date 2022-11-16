@@ -18,7 +18,7 @@ from .dataset import ImagenetDataset
 from .model import ResNet50
 from .losses import AverageMeter, EarlyStopping, EntropicOpensetLoss
 import tqdm
-from .context import approaches, architectures, data_prep, tools
+#from .context import approaches, architectures, data_prep, tools
 import openset_imagenet
 import pandas as pd
 import pickle
@@ -106,7 +106,7 @@ def save_models(all_hyper_param_models,pos_classes, cfg):
 
             # store models per hyperparameter combination as a (hparam_combo, model)-tuple
             #model_name = f'p{cfg.protocol}_traincls({"+".join(cfg.train_classes)})_{cfg.alg.lower()}_{key}_{cfg.hyp.distance_metric}_dnn_{cfg.loss.type}.pkl'
-            model_name = f'{cfg.loss.type}_{cfg.alg}_{key}_{cfg.hyp.distance_metric}.pkl'
+            model_name = f'{cfg.loss.type}_{cfg.algorithm.type}_{key}_{cfg.algorithm.distance_metric}.pkl'
 
             file_handler = open(cfg.output_directory / model_name, 'wb')
             
@@ -115,8 +115,8 @@ def save_models(all_hyper_param_models,pos_classes, cfg):
             #            'ku_target': cfg.known_unknown_target, 'uu_target': cfg.unknown_unknown_target, 'model_path': cfg.output_directory, 'log_path': self.log_path,
             #            'oscr_path': self.oscr_path, 'train_cls': self.train_classes, 'architecture': self.architecture, 'used_dnn': self.used_dnn, 'fpr_thresholds': self.fpr_thresholds}, 'model':  hparam_combo_to_model[key]}
 
-            obj_serializable = {'approach_train': cfg.alg, 'model_name': model_name, 
-                    'hparam_combo': key, 'distance_metric': cfg.hyp.distance_metric, 'instance': {'protocol': cfg.protocol, 'gpu': cfg.gpu,
+            obj_serializable = {'approach_train': cfg.algorithm.type, 'model_name': model_name, 
+                    'hparam_combo': key, 'distance_metric': cfg.algorithm.distance_metric, 'instance': {'protocol': cfg.protocol, 'gpu': cfg.gpu,
                         'ku_target': cfg.known_unknown_target, 'uu_target': cfg.unknown_unknown_target, 'model_path': cfg.output_directory}, 'model':  hparam_combo_to_model[key]}
             
                     
@@ -224,26 +224,30 @@ def worker(cfg):
     device(model)
 
 
-    print(f"Let me try {cfg.alg}")
+    print(f"Let me try {cfg.algorithm.type}")
     logger.debug('\n')
 
-    print(cfg.gpu, cfg.alg)
+    print("GPU:", cfg.gpu, cfg.algorithm.type)
 
     suffix = cfg.suffix
 
     print(cfg.output_directory)
-    start_epoch, best_score = load_checkpoint(model, pathlib.Path(cfg.output_directory / (str(cfg.loss.type)+suffix+".pth")))
+    #cfg.algorithm.base_model.format(cfg.protocol)
+
+    #start_epoch, best_score = load_checkpoint(model, pathlib.Path(cfg.output_directory / (str(cfg.loss.type)+suffix+".pth")))
+    start_epoch, best_score = load_checkpoint(model, checkpoint=cfg.algorithm.base_model.format(cfg.protocol) )
+
     print(f"Taking model from epoch {start_epoch} that achieved best score {best_score}")
     device(model)
 
-    if cfg.alg == 'openmax':
-        alg_hyperparameters=[cfg.hyp.tailsize, cfg.hyp.distance_multiplier, cfg.hyp.translateAmount, cfg.hyp.distance_metric, cfg.hyp.alpha]
+    if cfg.algorithm.type== 'openmax':
+        alg_hyperparameters=[cfg.algorithm.tailsize, cfg.algorithm.distance_multiplier, cfg.algorithm.translateAmount, cfg.algorithm.distance_metric, cfg.algorithm.alpha_om]
         hyperparams = openmax_hyperparams(*alg_hyperparameters)
-    elif cfg.alg == 'evm':
-        alg_hyperparameters = [cfg.evm_parameters.tailsize, cfg.evm_parameters.cover_threshold,cfg.evm_parameters.distance_multiplier, cfg.evm_parameters.distance_metric, cfg.evm_parameters.chunk_size]
+    elif cfg.algorithm.type == 'evm':
+        alg_hyperparameters = [cfg.algorithm.tailsize, cfg.algorithm.cover_threshold,cfg.algorithm.distance_multiplier, cfg.algorithm.distance_metric, cfg.algorithm.chunk_size]
         hyperparams = evm_hyperparams(*alg_hyperparameters)
     
-    print(f'{(cfg.alg).lower()}_hyperparams')
+    print(f'{(cfg.algorithm.type)}_hyperparams finished')
     
 
     #hyperparams = getattr(approaches, f'{cfg.alg}_hyperparams')(*alg_hyperparameters)
@@ -273,9 +277,9 @@ def worker(cfg):
     #print(approach)
 
     logger.debug('\n')
-    logger.info(f'Starting {cfg.alg} Training Procedure:')
+    logger.info(f'Starting {cfg.algorithm.type} Training Procedure:')
 
-    training_fct = getattr(opensetAlgos, f'{vars(cfg.alg_dict)[cfg.alg]}_Training')
+    training_fct = getattr(opensetAlgos, f'{vars(cfg.alg_dict)[cfg.algorithm.type]}_Training')
     
     #performs training on all parameter combinations
     #Training method returns iterator over (hparam_combo, (class, {model}))

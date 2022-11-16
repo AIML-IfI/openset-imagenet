@@ -201,67 +201,6 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
             trackers["conf_unk"].update(neg_conf, neg_count)
 
 
-
-def compose_dicts(targets, features, logits):
-    df_dim = features.shape[-1] if len(features.shape) > 1 else 1
-    df_data = pd.DataFrame(torch.hstack((targets, features, logits)).numpy(), columns=[
-        'gt'] + [f'feat_{i+1}' for i in range(df_dim)] + [f'log_{j+1}' for j in range(logits.shape[-1])])
-    df_data['gt'] = df_data['gt'].astype(np.int32)
-
-    df_group = df_data.groupby('gt')
-    feat_dict = (df_group.apply(lambda x: list(
-    map(list, zip(*[x[f'feat_{i+1}'] for i in range(df_dim)])))).to_dict())
-    for k in feat_dict:
-        feat_dict[k] = torch.Tensor(feat_dict[k])
-    logit_dict = (df_group.apply(lambda x: list(
-        map(list, zip(*[x[f'log_{i+1}'] for i in range(logits.shape[-1])])))).to_dict())
-    for k in logit_dict:
-        logit_dict[k] = torch.Tensor(logit_dict[k])
-
-    count_feat, count_logits = 0, 0
-
-    for k in feat_dict:
-        count_feat += feat_dict[k].shape[0]
-        count_logits += logit_dict[k].shape[0]
-
-    logger.debug('\n')
-    logger.info(f'Number of samples included in the dict: {count_feat}')
-    logger.info(f'Number of classes (i.e. # dict keys): {len(list(feat_dict.keys()))}')
-    return feat_dict, logit_dict
-
-def postprocess_train_data(targets, features, logits):
-    # Note: OpenMax uses only the training samples that get correctly classified by the
-          # underlying, extracting DNN to train its model.logger.debug('\n')
-    #print(f'{... post-processing:')
-
-    with torch.no_grad():
-        # OpenMax only uses KKCs for training
-        known_idxs = (targets >= 0).squeeze()
-
-        targets_kkc, features_kkc, logits_kkc = targets[
-            known_idxs], features[known_idxs], logits[known_idxs]
-
-        class_predicted = torch.max(logits_kkc, axis=1).indices
-        correct_idxs = targets_kkc.squeeze() == class_predicted
-
-        logger.info(
-            f'Correct classifications: {torch.sum(correct_idxs).item()}')
-        logger.info(
-            f'Incorrect classifications: {torch.sum(~correct_idxs).item()}')
-        logger.info(
-            f'Number of samples after post-processing: {targets_kkc[correct_idxs].shape[0]}')
-        logger.info(
-            f'Number of unique classes after post-processing: {len(collect_pos_classes(targets_kkc[correct_idxs]))}')
-
-        return targets_kkc[correct_idxs], features_kkc[correct_idxs], logits_kkc[correct_idxs]
-
-def collect_pos_classes(targets):
-    targets_unique = torch.unique(targets, sorted=True)
-    pos_classes = targets_unique[targets_unique >=
-                                  0].numpy().astype(np.int32).tolist()
-    return pos_classes
-
-
 def get_arrays(model, loader):
     """ Extract deep features, logits and targets for all dataset. Returns numpy arrays
 
@@ -298,52 +237,7 @@ def get_arrays(model, loader):
             all_feat.numpy(),
             all_scores.numpy())
 
-def save_models(all_hyper_param_models,pos_classes, cfg):
-        # integrating returned models in a data structure as required by <self.approach>_Inference()
-        hparam_combo_to_model = defaultdict(list)
 
-        for i in range(len(all_hyper_param_models)):
-            hparam_combo_to_model[all_hyper_param_models[i][0]].append(all_hyper_param_models[i][1])
-
-        logger.info(f'Trained models associated with hyperparameters: {list(hparam_combo_to_model.keys())}')
-        for key in hparam_combo_to_model:
-            hparam_combo_to_model[key] = dict(hparam_combo_to_model[key])
-
-            # store models per hyperparameter combination as a (hparam_combo, model)-tuple
-            #model_name = f'p{cfg.protocol}_traincls({"+".join(cfg.train_classes)})_{cfg.alg.lower()}_{key}_{cfg.hyp.distance_metric}_dnn_{cfg.loss.type}.pkl'
-            model_name = f'p{cfg.loss.type}_{cfg.alg}_{key}_{cfg.hyp.distance_metric}.pkl'
-
-            file_handler = open(cfg.output_directory / model_name, 'wb')
-            
-            #obj_serializable = {'approach_train': cfg.alg, 'model_name': model_name, 
-            #        'hparam_combo': key, 'distance_metric': cfg.distance_metric, 'instance': {'protocol': cfg.protocol, 'gpu': cfg.gpu,
-            #            'ku_target': cfg.known_unknown_target, 'uu_target': cfg.unknown_unknown_target, 'model_path': cfg.output_directory, 'log_path': self.log_path,
-            #            'oscr_path': self.oscr_path, 'train_cls': self.train_classes, 'architecture': self.architecture, 'used_dnn': self.used_dnn, 'fpr_thresholds': self.fpr_thresholds}, 'model':  hparam_combo_to_model[key]}
-
-            obj_serializable = {'approach_train': cfg.alg, 'model_name': model_name, 
-                    'hparam_combo': key, 'distance_metric': cfg.hyp.distance_metric, 'instance': {'protocol': cfg.protocol, 'gpu': cfg.gpu,
-                        'ku_target': cfg.known_unknown_target, 'uu_target': cfg.unknown_unknown_target, 'model_path': cfg.output_directory}, 'model':  hparam_combo_to_model[key]}
-            
-                    
-            pickle.dump(obj_serializable, file_handler)
-
-            """
-            Important: Since the <approach>_Inference() function in the vast package sorts the 
-            keys of the collated model, the semantic of the returned probabilities depends on 
-            the type of the dictionary keys. For example, when sorting is applied on the 'stringified'
-            integer classes, the column indices of the returned probabilities tensor do not necessarily
-            correspond with the integer class targets. Hence, the assertion for integer type below. 
-            """
-            assert sum([isinstance(k, int) for k in hparam_combo_to_model[key].keys()]) == len(
-                list(hparam_combo_to_model[key].keys())), 'dictionarys keys are not of type "int"'
-
-        """
-        SANITY CHECKS
-        """
-        assert len(set([el[0] for el in all_hyper_param_models])) == len(
-            hparam_combo_to_model.keys()), 'missing entries for hyperparameter combinations'
-        assert [(el == len(pos_classes)) for el in [len(hparam_combo_to_model[k].keys())
-                                                    for k in hparam_combo_to_model.keys()]], 'model misses training class(es)'
 
 
 def worker(cfg):
@@ -580,12 +474,12 @@ def worker(cfg):
             f"v:{val_time:.1f}s")
 
         # save best model and current model
-        ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.alg) + "_curr.pth"
+        ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.algorithm.type) + "_curr.pth"
         save_checkpoint(ckpt_name, model, epoch, opt, curr_score, scheduler=scheduler)
 
         if curr_score > BEST_SCORE:
             BEST_SCORE = curr_score
-            ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.alg) + "_best.pth"
+            ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.algorithm.type) + "_best.pth"
             # ckpt_name = f"{cfg.name}_best.pth"  # best model
             logger.info(f"Saving best model {ckpt_name} at epoch: {epoch}")
             save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
