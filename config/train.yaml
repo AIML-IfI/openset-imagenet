@@ -25,9 +25,7 @@ loss:
   # Entropic Parameters
   w: 1.
 
-#this may be deleted later
-algorithm:
-  type: dnn
+
 
 # Optimizer Parameters
 opt:
@@ -42,9 +40,6 @@ dist:
   gpus: 2            # Number of GPUS to use
   port: "8889"       # Default port to communicate.
 
-#openset algorithms
-alg: threshold  #openmax evm threshold proser
-
 alg_dict:
   openmax: OpenMax
   evm: EVM
@@ -52,22 +47,7 @@ alg_dict:
   threshold: threshold
 
 #DNN model to use
-dnn_features: "experiments/Protocol_1/softmax_best.pth"
-
-hyp:
-        tailsize: [1]
-        distance_multiplier: [1.5]
-        translateAmount: [1]
-        distance_metric: cosine
-        alpha: [10]
-
-
-evm_parameters:
-        tailsize: [10]
-        cover_threshold: [1]
-        distance_multiplier: [1.5]
-        distance_metric: cosine
-        chunk_size: 100
+#dnn_features: "experiments/Protocol_1/softmax_best.pth"        
 
 train_classes: [kk]
 known_unknown_target: -1
@@ -76,7 +56,8 @@ unknown_unknown_target: -2
 suffix: _best #or _cur
 
 algorithm:
-  type: proser
+  type: evm #openmax evm threshold proser
+  base_model: experiments/Protocol_{}/softmax_best.pth #for those which use pretrained models
 
   # Proser Parameters
   lambda0: 0.1
@@ -84,6 +65,12 @@ algorithm:
   lambda2: 1.
   alpha: 1.
   dummy_count: 2
-  base_model: experiments/Protocol_{}/softmax_best.pth
 
-
+  #openmax and evm parameters. alpha is changed to alpha_om not to mix with proser's alpha. 
+  tailsize: [1]
+  distance_multiplier: [1.5]
+  translateAmount: [1]
+  distance_metric: cosine
+  alpha_om: [10]
+  cover_threshold: [1] # specific to evm
+  chunk_size: 100 #specific to evm
