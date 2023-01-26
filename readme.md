@@ -1,14 +1,14 @@
 # Open set on ImageNet
-Implementation of the experiments performed in Large-Scale Open-Set Classification Protocols for ImageNet, which has been accepted for publication in WACV 2023.
-You can find a [pre-print of the paper including our supplemental material on arXiv](https://arxiv.org/abs/2210.06789).
-If you make use of our evaluation protocols or this implementation, please cite the following paper:
+Implementation of the experiments performed in Large-Scale Open-Set Classification Protocols for ImageNet, which has been presented in WACV 2023.
+You can find a [pre-print of the paper including our supplemental material on arXiv](https://arxiv.org/abs/2210.06789), or download the [final version from WACV](https://openaccess.thecvf.com/content/WACV2023/html/Palechor_Large-Scale_Open-Set_Classification_Protocols_for_ImageNet_WACV_2023_paper.html).
+If you make use of our evaluation protocols or this implementation, please cite the paper as follows:
 
     @inproceedings{palechor2023openset,
-        author       = {Palechor Anacona, Jesus Andres and Bhoumik, Annesha and G\"unther, Manuel},
+        author       = {Palechor, Andres and Bhoumik, Annesha and G\"unther, Manuel},
         booktitle    = {Winter Conference on Applications of Computer Vision (WACV)},
         title        = {Large-Scale Open-Set Classification Protocols for {ImageNet}},
         year         = {2023},
-        organization = {IEEE}
+        organization = {IEEE/CVF}
     }
 
 ## LICENSE
@@ -18,7 +18,7 @@ Please see `LICENSE` for details.
 ## Data
 
 All scripts rely on the ImageNet dataset using the ILSVRC 2012 data.
-If you do not have a copy yet, it can be downloaded from Kaggle (untested): https://www.kaggle.com/competitions/imagenet-object-localization-challenge/overview.
+If you do not have a copy yet, it can be [downloaded from Kaggle](https://www.kaggle.com/competitions/imagenet-object-localization-challenge/overview) (untested).
 The protocols rely on the `robustness` library, which in turn relies on some files that have been distributed with the ImageNet dataset some time ago, but they are not available anymore.
 With a bit of luck, you can find the files somewhere online:
 
@@ -29,6 +29,9 @@ With a bit of luck, you can find the files somewhere online:
 If not, you can also rely on the pre-computed protocol files, which can be found in the provided `protocols.zip` file and extracted via:
 
     unzip protocols.zip
+
+Finally, we have uploaded the [pre-trained models](https://seafile.ifi.uzh.ch/d/af484b369a2d4d13a04f) to allow for an easier comparison to our methods.
+Please download them into a directory `experiments` (the default directory in the below scripts) in order to work with them.
 
 
 ## Setup
