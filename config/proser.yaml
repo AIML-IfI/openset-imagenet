@@ -37,6 +37,7 @@ opt:
 # Algorithm parameters
 algorithm:
   type: proser
+  output_model_path: "{}/{}_{}_{}_{}_{}.pth" # directory/loss.type_alg.type_epoch_dummycount_curr.pth
 
   # Proser Parameters
   lambda0: 0.1

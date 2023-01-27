@@ -33,7 +33,6 @@ def set_seeds(seed):
     # torch.backends.cudnn.benchmark = Falsegg
 
 
-
 def save_checkpoint(f_name, model, epoch, opt, best_score_, scheduler=None):
     """ Saves a training checkpoint.
 
@@ -208,6 +207,7 @@ def get_arrays(model, loader):
         data_len = len(loader.dataset)         # dataset length
         logits_dim = model.logits.out_features  # logits output classes
         features_dim = model.logits.in_features  # features dimensionality
+        print("logits dim: ", logits_dim, "feature dim:", features_dim)
         all_targets = torch.empty(data_len, device="cpu")  # store all targets
         all_logits = torch.empty((data_len, logits_dim), device="cpu")   # store all logits
         all_feat = torch.empty((data_len, features_dim), device="cpu")   # store all features

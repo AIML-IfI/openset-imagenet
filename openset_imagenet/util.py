@@ -87,7 +87,7 @@ def read_array_list(file_names):
     return arrays
 
 
-def calculate_oscr(gt, scores, unk_label=-1):
+def calculate_oscr(gt, scores, unk_label=-1, drop_bg=False):
     """ Calculates the OSCR values, iterating over the score of the target class of every sample,
     produces a pair (ccr, fpr) for every score.
     Args:
@@ -107,9 +107,13 @@ def calculate_oscr(gt, scores, unk_label=-1):
 
     ccr, fpr = [], []
     pred_class = np.argmax(scores, axis=1)
+
+    if drop_bg:  # if background class drop the last column of scores
+        scores = scores[:, :-1]
+
     max_score = np.max(scores, axis=1)
     target_score = scores[kn][range(kn.sum()), gt[kn]]
-
+    #print(target_score) #HB
     for tau in np.unique(target_score)[:-1]:
         val = ((pred_class[kn] == gt[kn]) & (target_score > tau)).sum() / total_kn
         ccr.append(val)
@@ -124,7 +128,7 @@ def calculate_oscr(gt, scores, unk_label=-1):
 
 def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     linestyle = 'solid'
-    linewidth = 1
+    linewidth = 1.1
     if baseline:  # The baseline is always the first array
         linestyle = 'dashed'
     if scale == 'log':
@@ -141,7 +145,7 @@ def plot_single_oscr(x, y, ax, exp_name, color, baseline, scale):
     elif scale == 'semilog':
         ax.set_xscale('log')
         # Manual limits
-        ax.set_ylim(0.0, 0.8)
+        ax.set_ylim(0.0, .8)
         ax.set_xlim(8 * 1e-5, 1.4)
         # Manual ticks
         ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))  # MaxNLocator(7))  #, prune='lower'))
@@ -178,6 +182,7 @@ def plot_oscr(arrays, methods, scale='linear', title=None, ax_label_font=13,
 
     for idx, array in enumerate(arrays):
         has_bg = methods[idx] == "garbage"
+        print(methods[idx])
 
         if array is None:
             ccr, fpr = [], []

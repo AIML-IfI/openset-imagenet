@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(__file__), '../..')))
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-print(sys.path)
+#print(sys.path)
 
 from openset_imagenet import approaches, architectures, data_prep, tools
 
