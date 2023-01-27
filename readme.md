@@ -40,7 +40,7 @@ Please run:
 
 Afterward, activate the environment via:
 
-    conda activate openset-imagenet
+    conda activate openset-imagenet-comparison
 
 ## Scripts
 
@@ -56,32 +56,46 @@ Please refer to its help for details:
 Basically, you have to provide the original directory for your ImageNet images, and the directory containing the files for the `robustness` library.
 The other options should be changed rarely.
 
-### Training of one model
+### Training of one base model
 
 The training can be performed using the `train_imagenet.py` script.
-It relies on a configuration file as can be found in `config/train.yaml`.
+It relies on a configuration file as can be found in `config/threshold.yaml`.
 Please set all parameters as required (the default values are as used in the paper), and run:
 
-    train_imagenet.py [config] [protocol] -o [outdir] -g GPU
+    train_imagenet.py [config] [protocol] -g GPU
 
-where `[config]` is the configuration file, `[protocol]` one of the three protocols, and `[outdir]` the output directory of the trained model and some logs.
+where `[config]` is the configuration file, `[protocol]` one of the three protocols.
 The `-g` option can be used to specify that the training should be performed on the GPU (**highly recommended**), and you can also specify a GPU index in case you have several GPUs at your disposal.
 
-### Training of all the models in the paper
+### Running different algorithms using that model
+
+The other algorithms (EVM, OpenMax, PROSER) can be executed with exactly the same `train_imagenet.py` script.
+Simply provide another configuration file from the `config/` directory.
+Again, you might want to adapt some parameters in those configuration files, but they are all set according to the results in the paper.
+
+.. note::
+   Please make sure that you have run the base model training before executing other algorithms.
+
+### Training of all the models with all of the algorithms in the paper
 
 The `train_imagenet_all.py` script provides a shortcut to train a model with three different loss functions on three different protocols.
-It relies on the same configuration file (`config/train.yaml`) where some parts are modified during execution.
+It relies on the same configuration files from the `config/` directory where some parts are modified during execution.
 You can run:
 
-    train_imagenet_all.py --configuration [config] -g [list-of-gpus]
+    train_imagenet_all.py --configuration-direcrtory [config] -g [list-of-gpus]
 
-where `[config]` is the configuration file, which is by default `config/train.yaml`.
-You can also select some of the `--protocols` to run on, as well as some of the `--loss-functions`, or change the `--output-directory`.
+where `[config]` is the directory containing all configuration files, which is by default `config/`.
+You can also select some of the `--protocols` to run on, as well as some of the `--loss-functions`, and some of the `--algorithms`.
 The `-g` option can take several GPU indexes, and trainings will be executed in parallel if more than one GPU index is specified.
-In case the training stops early for unknown reasons, you can safely use the `--continue` option to continue training from the last epoch.
+In case the training stops early for unknown reasons, you can safely use the `--continue` option to continue training from the last epoch -- this option also works for the PROSER training.
 
 When you have a single GPU available, start the script and book a trip to Hawaii, results will finish in about a week.
 The more GPUs you can spare, the faster the training will end.
+However, make sure that the `threshold` algorithm is always executed first, maybe by running:
+
+    train_imagenet_all.py --configuration-direcrtory [config] -g [list-of-gpus] --algorithms threshold
+    train_imagenet_all.py --configuration-direcrtory [config] -g [list-of-gpus] --continue
+
 
 ### Evaluation
 

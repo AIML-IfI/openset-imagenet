@@ -24,12 +24,6 @@ def get_args(command_line_options = None):
         help="Open set protocol: 1, 2 or 3"
     )
     parser.add_argument(
-        "--output-directory", "-o",
-        type=pathlib.Path,
-        default=".",
-        help="Directory to store the trained models into"
-    )
-    parser.add_argument(
         "--gpu", "-g",
         type = int,
         nargs="?",
@@ -55,17 +49,21 @@ def main(command_line_options = None):
 
     args = get_args(command_line_options)
     config = openset_imagenet.util.load_yaml(args.configuration)
-    if args.gpu:
+    if args.gpu is not None:
         config.gpu = args.gpu
     config.protocol = args.protocol
-    config.output_directory = args.output_directory
 
-    if config.algorithm.type in ['openmax', 'evm']:
-        openset_imagenet.openmax_evm.worker(config)
-    elif config.algorithm.type== "threshold":
+    if config.algorithm.type == "threshold":
         openset_imagenet.train.worker(config)
+    elif config.algorithm.type in ['openmax', 'evm']:
+        openset_imagenet.openmax_evm.worker(config)
     elif config.algorithm.type == "proser":
         openset_imagenet.proser.worker(config)
+    elif config.algorithm.type == "maxlogit":
+        # This is the same as threshold, so no need to do anything here
+        pass
+    else:
+        raise ValueError(f"The training configuration type '{config.algorithm.type}' is not known to the system")
 
 
 if __name__ == "__main__":

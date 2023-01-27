@@ -15,8 +15,8 @@ data:
 
 # Common parameters
 seed: 42        # Common seed across all source of randomness
-batch_size: 32  # Batch size for PROSER training
-epochs: 20
+batch_size: 32  # If distributed training the batch size is multiplied by the number of gpus
+epochs: 120
 workers: 4      # Dataloader number of workers
 patience: 0     # Number of epochs to wait before stopping the training. 0 means no early stopping
 
@@ -26,21 +26,13 @@ loss:
   # Entropic Parameters
   w: 1.
 
-# Optimizer Parameters for PROSER
+# Optimizer Parameters
 opt:
-  type: adam  # Two options: {adam, sgd}
+  type: sgd  # Two options: {adam, sgd}
   lr: 1.e-3   # Initial learning rate
   decay: 0    # Number of epochs to wait for each learning rate reduction. 0 means no decay
   gamma: 1    # Factor to reduce the learning rate
 
-
 # Algorithm parameters
 algorithm:
-  type: proser
-
-  # Proser Parameters
-  lambda0: 0.1
-  lambda1: 1.
-  lambda2: 1.
-  alpha: 1.
-  dummy_count: 2
+  type: threshold

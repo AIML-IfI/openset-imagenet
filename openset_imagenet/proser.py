@@ -51,7 +51,6 @@ def train_proser(model, data_loader, optimizer, loss_fn, trackers, cfg):
     # I do not know how batchnorm handles forward to be called several times before backward is called
     model.train()
 
-
     for images, labels in data_loader:
         batch_len = labels.shape[0]
         optimizer.zero_grad()
@@ -206,7 +205,7 @@ def worker(cfg):
     msg_format = "{time:DD_MM_HH:mm} {name} {level}: {message}"
     logger.configure(handlers=[{"sink": sys.stderr, "level": "INFO", "format": msg_format}])
     logger.add(
-        sink= cfg.output_directory / cfg.log_name,
+        sink= pathlib.Path(cfg.output_directory) / cfg.log_name,
         format=msg_format,
         level="INFO",
         mode='w')
@@ -324,7 +323,7 @@ def worker(cfg):
         # for PROSER, we always start with a pre-trained model, which we need to load here
         _, _ = load_checkpoint(
             model = base,
-            checkpoint = cfg.algorithm.base_model.format(cfg.protocol),
+            checkpoint = cfg.model_path.format(cfg.output_directory, cfg.loss.type, "threshold", "curr"),
             opt = None,
             scheduler = None
         )
@@ -340,7 +339,6 @@ def worker(cfg):
     logger.info("========== Training ==========")
     logger.info(f"Initial epoch: {START_EPOCH}")
     logger.info(f"Last epoch: {cfg.epochs}")
-    logger.info(f"General mode: {cfg.train_mode}")
     logger.info(f"Batch size: {cfg.batch_size}")
     logger.info(f"workers: {cfg.workers}")
     logger.info(f"Loss: {cfg.loss.type}")
@@ -402,12 +400,12 @@ def worker(cfg):
             f"v:{val_time:.1f}s")
 
         # save best model and current model
-        ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.algorithm.type) + "_curr.pth"
+        ckpt_name = cfg.model_path.format(cfg.output_directory, cfg.loss.type, cfg.algorithm.type, "curr")
         save_checkpoint(ckpt_name, model, epoch, opt, curr_score, scheduler=scheduler)
 
         if curr_score > BEST_SCORE:
             BEST_SCORE = curr_score
-            ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.algorithm.type) + "_best.pth"
+            ckpt_name = cfg.model_path.format(cfg.output_directory, cfg.loss.type, cfg.algorithm.type, "best")
             # ckpt_name = f"{cfg.name}_best.pth"  # best model
             logger.info(f"Saving best model {ckpt_name} at epoch: {epoch}")
             save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
