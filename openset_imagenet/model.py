@@ -28,10 +28,13 @@ class ResNet50(nn.Module):
         fc_in_features = self.resnet_base.fc.in_features
         self.resnet_base.fc = nn.Linear(in_features=fc_in_features, out_features=fc_layer_dim)
 
+
         self.logits = nn.Linear(
             in_features=fc_layer_dim,
             out_features=out_features,
             bias=logit_bias)
+
+
 
     def forward(self, image):
         """ Forward pass
@@ -49,12 +52,13 @@ class ResNet50(nn.Module):
 
 class ResNet50Proser(nn.Module):
     """Implements functionality for the PROSER approach into ResNet50"""
-    def __init__(self, dummy_count, fc_layer_dim=1000, resnet_base = None):
+    def __init__(self, dummy_count, fc_layer_dim=1000, resnet_base = None, loss_type=None):
         super(ResNet50Proser, self).__init__()
         self.dummy_count = dummy_count
         # add a dummy classifier for unknown classes
         self.dummy_classifier = nn.Linear(fc_layer_dim, dummy_count)
         self.resnet_base = resnet_base
+        self.loss_type=loss_type
 
     def first_blocks(self, x):
         """Calls the first three blocks of the model
@@ -65,6 +69,7 @@ class ResNet50Proser(nn.Module):
         manifold mixup is performed after the third group of blocks (i.e. layer3). By following
         this approach, the manifold mixup is performed after the penultimate group/layer
         """
+       
         x = self.resnet_base.resnet_base.conv1(x)
         x = self.resnet_base.resnet_base.bn1(x)
         x = self.resnet_base.resnet_base.relu(x)
@@ -73,6 +78,8 @@ class ResNet50Proser(nn.Module):
         x = self.resnet_base.resnet_base.layer1(x)
         x = self.resnet_base.resnet_base.layer2(x)
         x = self.resnet_base.resnet_base.layer3(x)
+        
+        
         return x
 
     def last_blocks(self, x):
@@ -87,11 +94,14 @@ class ResNet50Proser(nn.Module):
         x = self.resnet_base.resnet_base.layer4(x)
 
         x = self.resnet_base.resnet_base.avgpool(x)
+
         x = torch.flatten(x, 1)
+        
         features = self.resnet_base.resnet_base.fc(x)
 
         # apply our standard output layer
         logits = self.resnet_base.logits(features)
+
         # apply our dummy layer, get only the maximum output
         dummy = torch.max(self.dummy_classifier(features), dim=1)[0]
         return logits, dummy, features

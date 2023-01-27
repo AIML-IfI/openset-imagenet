@@ -13,6 +13,7 @@ from openset_imagenet import approaches
 from openset_imagenet import openset_algos
 import openset_imagenet
 import pickle
+from openset_imagenet.openmax_evm import compute_adjust_probs, evm_hyperparams, openmax_hyperparams, compute_probs, compose_dicts, get_ccr_at_fpr, validate
 
 def get_args():
     """Gets the evaluation parameters."""
@@ -36,6 +37,13 @@ def get_args():
         choices = (1,2,3),
         help = "Which protocol to evaluate"
     )
+
+    parser.add_argument(
+        "--algorithm", "-alg",
+        choices = ["threshold", "openmax", "proser", "evm"],
+        help = "Which algorithm to evaluate. Specific parameters should be in the yaml file"
+    )
+
     parser.add_argument(
         "--use-best", "-b",
         action="store_true",
@@ -86,6 +94,8 @@ def get_args():
     return args
 
 
+
+
 def main(command_line_options = None):
 
     args = get_args()
@@ -93,8 +103,10 @@ def main(command_line_options = None):
     cfg = openset_imagenet.util.load_yaml(args.configuration)
     if args.gpu:
         cfg.gpu = args.gpu
-    cfg.protocol = args.protocol 
-    print("works?")
+    cfg.protocol = args.protocol
+    cfg.algorithm.type = args.algorithm 
+    cfg.output_directory = args.output_directory
+    cfg.loss.type = args.loss
     
     # Create transformations
     transform_val = tf.Compose(
@@ -108,6 +120,9 @@ def main(command_line_options = None):
         imagenet_path=args.imagenet_directory,
         transform=transform_val)
 
+    #reorganize labels for the validation set
+    val_dataset.re_order_labels()
+    
     test_dataset = openset_imagenet.ImagenetDataset(
         csv_file=args.protocol_directory/f"p{args.protocol}_test.csv",
         imagenet_path=args.imagenet_directory,
@@ -131,100 +146,218 @@ def main(command_line_options = None):
 
     if args.loss == "garbage":
         n_classes = val_dataset.label_count # we use one class for the negatives
+        val_dataset.replace_negative_label()
     else:
         n_classes = val_dataset.label_count - 1  # number of classes - 1 when training with unknowns
 
     # create model
     suffix = "_best" if args.use_best else "_curr"
-    model = openset_imagenet.ResNet50(fc_layer_dim=n_classes, out_features=n_classes, logit_bias=False)
-    start_epoch, best_score = openset_imagenet.train.load_checkpoint(model, args.output_directory / (args.loss+suffix+".pth"))
+    
+    
+    if cfg.algorithm.type=='proser':
+        base = openset_imagenet.ResNet50(
+            fc_layer_dim=n_classes,
+            out_features=n_classes,
+            logit_bias=False)
+
+        model = openset_imagenet.model.ResNet50Proser(
+            resnet_base = base,
+            dummy_count = cfg.algorithm.dummy_count,
+            fc_layer_dim=n_classes)
+
+        model_path = args.output_directory / (args.loss+ "_" + cfg.algorithm.type  + "_" + str(cfg.epochs)+ "_" + str(cfg.algorithm.dummy_count)+ suffix+".pth")
+    else:
+        model = openset_imagenet.ResNet50(fc_layer_dim=n_classes, out_features=n_classes, logit_bias=False)
+        model_path = args.output_directory / (args.loss + suffix+".pth")
+
+    start_epoch, best_score = openset_imagenet.train.load_checkpoint(model, model_path)
     print(f"Taking model from epoch {start_epoch} that achieved best score {best_score}")
     device(model)
-
     
-    print("reading openmax/evm model for the parameter combo")
-
-    model_to_test = 'experiments/Protocol_1/p1_traincls(kk)_evm_TS_10_DM_1.50_CT_1.00_cosine_dnn_softmax.pkl'
-    model_to_test = 'experiments/Protocol_1/p1_traincls(kk)_openmax_TS_1.0_DM_1.50_cosine_dnn_softmax.pkl' #p1_traincls(kk)_openmax_TS_1.0_DM_1.50_cosine_dnn_softmax.pkl
-    file_handler = open(model_to_test,'rb')
-    model_dict = pickle.load(file_handler)
+    if cfg.test_on or cfg.eval_on:
+        if cfg.algorithm.type == 'openmax':
+            print("reading evm model for the parameter combo")
+            model_to_test = cfg.openmax_model_to_test.format(cfg.protocol, cfg.loss.type)
+            file_handler = open(model_to_test,'rb')
+            model_dict = pickle.load(file_handler)
+            alg_hyperparameters=[cfg.algorithm.tailsize, cfg.algorithm.distance_multiplier, cfg.algorithm.translateAmount, cfg.algorithm.distance_metric, cfg.algorithm.alpha_om]
+            hyperparams = openmax_hyperparams(*alg_hyperparameters)
+        elif cfg.algorithm.type == 'evm':
+            print("reading evm model for the parameter combo")
+            model_to_test = cfg.evm_model_to_test.format(cfg.protocol, cfg.loss.type)
+            file_handler = open(model_to_test,'rb')
+            model_dict = pickle.load(file_handler)
+            alg_hyperparameters = [cfg.algorithm.tailsize, cfg.algorithm.cover_threshold,cfg.algorithm.distance_multiplier, cfg.algorithm.distance_metric, cfg.algorithm.chunk_size]
+            hyperparams = evm_hyperparams(*alg_hyperparameters)
     
-    if cfg.alg == 'OpenMax':
-        alg_hyperparameters=[cfg.hyp.tailsize, cfg.hyp.distance_multiplier, cfg.hyp.translateAmount, cfg.hyp.distance_metric, cfg.hyp.alpha]
-    elif cfg.alg == 'EVM':
-        alg_hyperparameters = [cfg.evm_parameters.tailsize, cfg.evm_parameters.cover_threshold,cfg.evm_parameters.distance_multiplier, cfg.evm_parameters.distance_metric, cfg.evm_parameters.chunk_size]
+    if cfg.test_on:
+        # Test Section
+        print("getting features and logits for test set .... ")
+
+        if cfg.algorithm.type=='proser':
+            gt, logits, features, scores = openset_imagenet.proser.get_arrays_for_proser(
+                model=model,
+                loader=test_loader
+            )        
+            suffix = suffix + "_" + str(cfg.algorithm.dummy_count)
+        else:
+            gt, logits, features, scores = openset_imagenet.train.get_arrays(
+                model=model,
+                loader=test_loader
+            )
+
+        if args.loss=='garbage':
+            #biggest_label = np.sort(np.unique(gt))[-1]
+            #print(biggest_label)
+            #gt[gt==biggest_label] = -1
+            logits = logits[:,:-1]
+            features = features[:,:-1]
+            scores = scores[:,:-1]
+            print('shapes for logits, features, and scores after reading and excluding BG', logits.shape, features.shape, scores.shape)
+
+        if cfg.algorithm.type == 'openmax':
+            #scores are being adjusted her through openmax alpha
+            print("adjusting probabilities for openmax with alpha")
+            scores = compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams, alpha_index=1)
+        elif cfg.algorithm.type=='evm':
+            print("computing probabilities for evm")
+            scores = compute_probs(gt, logits, features, scores, model_dict, cfg, hyperparams)
         
-    print(f'{(cfg.alg).lower()}_hyperparams')
-    hyperparams = getattr(approaches, f'{(cfg.alg).lower()}_hyperparams')(*alg_hyperparameters)
+        file_path = args.output_directory / f"{args.loss}_{cfg.algorithm.type}_test_arr{suffix}.npz"
+        np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
+        print(f"Target labels, logits, features and scores saved in: {file_path}")
+
+    #Validation of one specific model
+    if cfg.eval_on:
+        #reset suffix
+        suffix = "_best" if args.use_best else "_curr"
+        
+        print("========== Evaluating ==========")
+        print("Validation data:")
+        # extracting arrays for validation
+
+        
+        if cfg.algorithm.type=='proser':
+            gt, logits, features, scores = openset_imagenet.proser.get_arrays_for_proser(
+                model=model,
+                loader=val_loader
+            )
+            suffix = suffix + "_" + str(cfg.algorithm.dummy_count)        
+        else:
+            gt, logits, features, scores = openset_imagenet.train.get_arrays(
+                model=model,
+                loader=val_loader
+            )
+
+        if args.loss=='garbage':
+            biggest_label = np.sort(np.unique(gt))[-1]
+            print(biggest_label)
+            gt[gt==biggest_label] = -1
+            logits = logits[:,:-1]
+            features = features[:,:-1]
+            scores = scores[:,:-1]
+            print('shapes for logits, features, and scores after reading and excluding BG', logits.shape, features.shape, scores.shape)
+
+
+        print('in eval', gt)
     
-    print("========== Evaluating ==========")
-    print("Validation data:")
-    # extracting arrays for validation
-    gt, logits, features, scores = openset_imagenet.train.get_arrays(
-        model=model,
-        loader=val_loader
-    )
+        if cfg.algorithm.type == 'openmax':
+            #scores are being adjusted her through openmax alpha
+            print("adjusting probabilities for openmax")
+            scores = compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams, alpha_index=1)
+        elif cfg.algorithm.type=='evm':
+            print("computing probabilities for evm")
+            scores = compute_probs(gt, logits, features, scores, model_dict, cfg, hyperparams)
 
-    #scores are being adjusted her through openmax alpha
-    scores = compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams)
+        file_path = args.output_directory / f"{args.loss}_{cfg.algorithm.type}_val_arr{suffix}.npz"
+        np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
+        print(f"Target labels, logits, features and scores saved in: {file_path}")
 
-    file_path = args.output_directory / f"{args.loss}_{cfg.alg.lower()}_val_arr{suffix}.npz"
-    np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
+        #file_path = args.output_directory / f"{args.loss}_val_arr{suffix}.npz"
+        #np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
 
-    #file_path = args.output_directory / f"{args.loss}_val_arr{suffix}.npz"
+
+
+
+    #file_path = args.output_directory / f"{args.loss}_{cfg.algorithm.type}_test_arr{suffix}.npz"
     #np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
+    #print(f"Target labels, logits, features and scores saved in: {file_path}")
 
-    # extracting arrays for test
-    print("Test data:")
-    gt, logits, features, scores = openset_imagenet.train.get_arrays(
-        model=model,
-        loader=test_loader
-    )
-
-    #scores are being adjusted her through openmax alpha
-    scores = compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams)
-
-    file_path = args.output_directory / f"{args.loss}_{cfg.alg.lower()}_test_arr{suffix}.npz"
-    np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
-
-    print(f"Target labels, logits, features and scores saved in: {file_path}")
 
     
-def compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams):
-    #arrange for openmax inference/alpha 
-    gt, features, logits = torch.Tensor(gt)[:, None], torch.Tensor(features), torch.Tensor(logits)
-    kkc = openset_imagenet.train.collect_pos_classes(gt)
-    #targets, features, logits = postprocess_train_data(gt, features, logits)
-    #print(kkc)
-    pos_classes = openset_imagenet.train.collect_pos_classes(gt)
-    feat_dict, logit_dict = openset_imagenet.train.compose_dicts(gt, features, logits)
-    feat_dict = {k: v.double() for k, v in feat_dict.items()}
+    if cfg.validate_on:
+
+        print("getting features and logits for validation set .... ")
+       
+        gt, logits, features, scores = openset_imagenet.train.get_arrays(
+            model=model,
+            loader=val_loader
+        )
+
+        print('last label in validation dataset is: ', gt[-1])
+        
+        if args.loss=='garbage':
+            biggest_label = np.sort(np.unique(gt))[-1]
+            print(biggest_label)
+            gt[gt==biggest_label] = -1
+            logits = logits[:,:-1]
+            features = features[:,:-1]
+            scores = scores[:,:-1]
+            print('After relabeling, last label in validation dataset is: ', gt[-1])
+            print('shapes for logits, features, and scores after reading and excluding BG', logits.shape, features.shape, scores.shape)
+
+
+
+
+
+        print('Validation starting for openmax/evm model')
+
+        if cfg.algorithm.type == 'openmax':
+            print("reading openmax models for different parameter combos")
+            model_to_test = cfg.openmax_model_to_test.format(cfg.protocol, cfg.loss.type)
+
+            file_handler = open(model_to_test,'rb')
+            model_dict = pickle.load(file_handler)
+            
+            alg_hyperparameters=[cfg.algorithm.tailsize, cfg.algorithm.distance_multiplier, cfg.algorithm.translateAmount, cfg.algorithm.distance_metric, cfg.algorithm.alpha_om]
+            hyperparams = openmax_hyperparams(*alg_hyperparameters)
+            print(hyperparams)
+
+            for ts in cfg.algorithm.tailsize:
+                tailsize = f"{ts:.1f}"
+                for dm in cfg.algorithm.distance_multiplier:
+                    distance_multiplier = f"{dm:.2f}"
+                    print('Model loaded for ', ts, dm)
+                    model_to_val = cfg.openmax_model_to_validate.format(cfg.protocol, cfg.loss.type, tailsize, distance_multiplier)
+                    file_handler = open(model_to_val,'rb')
+                    model_dict = pickle.load(file_handler)
+                    print('just before validate')
+                    validate(gt, logits, features, scores, model_dict, hyperparams, cfg) 
+
+
+        elif cfg.algorithm.type == 'evm':
+            print("reading evm models for the parameter combos")
+            model_to_test = cfg.evm_model_to_test.format(cfg.protocol, cfg.loss.type)
+
+            file_handler = open(model_to_test,'rb')
+            model_dict = pickle.load(file_handler)
+
+            alg_hyperparameters = [cfg.algorithm.tailsize, cfg.algorithm.cover_threshold,cfg.algorithm.distance_multiplier, cfg.algorithm.distance_metric, cfg.algorithm.chunk_size]
+            hyperparams = evm_hyperparams(*alg_hyperparameters)
+
+            for ts in cfg.algorithm.tailsize:
+                for dm in cfg.algorithm.distance_multiplier:
+                    distance_multiplier = f"{dm:.2f}"
+                    model_to_val = cfg.evm_model_to_validate.format(cfg.protocol, cfg.loss.type, ts, distance_multiplier )
+                    file_handler = open(model_to_val,'rb')
+                    model_dict = pickle.load(file_handler)
+                    print('Model loaded for ', ts, dm)
+                    validate(gt, logits, features, scores, model_dict, hyperparams, cfg)
+            
+            print(hyperparams)
     
 
-    for alpha in hyperparams.alpha:
-        probabilities = list(getattr(opensetAlgos, f'{cfg.alg}_Inference')(pos_classes_to_process=feat_dict.keys(),features_all_classes=feat_dict, args=hyperparams, gpu=cfg.gpu, models=model_dict['model']))
-        dict_probs = dict(list(zip(*probabilities))[1])
-        for idx, key in enumerate(dict_probs.keys()):
-            print(list(logit_dict.keys())[idx], key, type(list(logit_dict.keys())[idx]), type(key))
-            assert key == list(logit_dict.keys())[idx]
-            assert dict_probs[key].shape[1] == logit_dict[key].shape[1]
-            probs_openmax = openset_algos.openmax_alpha(dict_probs[key], logit_dict[key], alpha=alpha, ignore_unknown_class=True)
-            dict_probs[key] = probs_openmax
-
-    all_probs = []
-    for key in dict_probs.keys():
-        all_probs.extend(dict_probs[key].tolist())
-    
-    return all_probs
-    
-
-    exit()
-
-    
-    file_path = args.output_directory / f"{args.loss}_test_arr{suffix}.npz"
-    np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
-    print(f"Target labels, logits, features and scores saved in: {file_path}")
-
+   
 if __name__=='__main__':
     main()
     print("enters")

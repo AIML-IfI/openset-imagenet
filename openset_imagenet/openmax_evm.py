@@ -26,6 +26,9 @@ from vast import opensetAlgos
 from .train import set_seeds, save_checkpoint, load_checkpoint, get_arrays
 import argparse
 from collections import namedtuple
+from openset_imagenet import openset_algos
+import csv
+from util import calculate_oscr
 
 
 
@@ -91,7 +94,69 @@ def collect_pos_classes(targets):
     return pos_classes
 
 
+def compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams, alpha_index=0):
+    #alpha index is used to indicate which alpha value to be tested in case there are multiple of them given
+    #arrange for openmax inference/alpha
+    gt, features, logits = torch.Tensor(gt)[:, None], torch.Tensor(features), torch.Tensor(logits)
+    kkc = collect_pos_classes(gt)
+    #targets, features, logits = postprocess_train_data(gt, features, logits)
+    #print(kkc)
+    pos_classes = collect_pos_classes(gt)
+    feat_dict, logit_dict = compose_dicts(gt, features, logits)
+    feat_dict = {k: v.double() for k, v in feat_dict.items()}
 
+    print(hyperparams)
+
+    #for alpha in hyperparams.alpha:
+    probabilities = list(getattr(opensetAlgos, f'{vars(cfg.alg_dict)[cfg.algorithm.type]}_Inference')(pos_classes_to_process=feat_dict.keys(), features_all_classes=feat_dict, args=hyperparams, gpu=cfg.gpu, models=model_dict['model']))
+    dict_probs = dict(list(zip(*probabilities))[1])
+    for idx, key in enumerate(dict_probs.keys()):
+        print(list(logit_dict.keys())[idx], key, type(list(logit_dict.keys())[idx]), type(key))
+        assert key == list(logit_dict.keys())[idx]
+        assert dict_probs[key].shape[1] == logit_dict[key].shape[1]
+        probs_openmax = openset_algos.openmax_alpha(dict_probs[key], logit_dict[key], alpha=hyperparams.alpha[alpha_index], ignore_unknown_class=True)
+        dict_probs[key] = probs_openmax
+
+    all_probs = []
+    for key in range(len(kkc)):
+        #print(key, dict_probs[key].shape[-1])
+        all_probs.extend(dict_probs[key].tolist())
+
+    for key in [-1, -2]:
+        if key in dict_probs.keys():
+            print(key, 'shape:', dict_probs[key].shape[-1])
+            all_probs.extend(dict_probs[key].tolist())
+
+    return all_probs
+
+def compute_probs(gt, logits, features, scores, model_dict, cfg, hyperparams):
+    #arrange for EVM
+    gt, features, logits = torch.Tensor(gt)[:, None], torch.Tensor(features), torch.Tensor(logits)
+    kkc = collect_pos_classes(gt)
+    #targets, features, logits = postprocess_train_data(gt, features, logits)
+    print('compute_probs:', kkc)
+    pos_classes = collect_pos_classes(gt)
+    feat_dict, logit_dict = compose_dicts(gt, features, logits)
+    feat_dict = {k: v.double() for k, v in feat_dict.items()}
+
+    print(hyperparams)
+
+
+    probabilities = list(getattr(opensetAlgos, f'{vars(cfg.alg_dict)[cfg.algorithm.type]}_Inference')(pos_classes_to_process=feat_dict.keys(),features_all_classes=feat_dict, args=hyperparams, gpu=cfg.gpu, models=model_dict['model']))
+    dict_probs = dict(list(zip(*probabilities))[1])
+
+
+    all_probs = []
+    for key in range(len(kkc)):
+        #print(key, dict_probs[key].shape[-1])
+        all_probs.extend(dict_probs[key].tolist())
+
+    for key in [-1, -2]:
+        if key in dict_probs.keys():
+            print(key, dict_probs[key].shape[-1])
+            all_probs.extend(dict_probs[key].tolist())
+
+    return all_probs
 
 def save_models(all_hyper_param_models,pos_classes, cfg):
         # integrating returned models in a data structure as required by <self.approach>_Inference()
@@ -132,6 +197,118 @@ def save_models(all_hyper_param_models,pos_classes, cfg):
             hparam_combo_to_model.keys()), 'missing entries for hyperparameter combinations'
         assert [(el == len(pos_classes)) for el in [len(hparam_combo_to_model[k].keys())
                                                     for k in hparam_combo_to_model.keys()]], 'model misses training class(es)'
+
+'''
+def validate(all_hyper_param_models,pos_classes, cfg):
+    # integrating returned models in a data structure as required by <self.approach>_Inference()
+    hparam_combo_to_model = defaultdict(list)
+    for i in range(len(all_hyper_param_models)):
+        hparam_combo_to_model[all_hyper_param_models[i][0]].append(all_hyper_param_models[i][1])
+
+    logger.info(f'Trained models associated with hyperparameters: {list(hparam_combo_to_model.keys())}')
+    for key in hparam_combo_to_model:
+        hparam_combo_to_model[key] = dict(hparam_combo_to_model[key])
+'''
+
+def get_ccr_at_fpr(hparam_combo, path, fpr, ccr, cfg):
+    """
+    Args:
+        hparam_combo (string): hyperparameter combination that represents the model whose oscr metrics are analysed
+        path (string, pathlib.Path): path to the csv file where oscr metrics are stored
+        fpr (torch.Tensor): tensor representing the (oscr) false positive rate
+        ccr (torch.Tensor): tensor representing the (oscr) correct classification rate
+        fpr_thresholds (list<float>): list of false positive rate (fpr) thresholds that are used to select the best model in the validation procedure in a "ccr@fpr" fashion (see Dhamija et al., 2018)
+    """
+    assert fpr.shape == ccr.shape, 'shape mismatch between torch tensors'
+
+    values = [('model', 'fpr_threshold', 'idx_closest_fpr', 'fpr', 'ccr')]
+
+    for e in cfg.fpr_thresholds:
+        threshold = torch.Tensor([e]*fpr.shape[0])
+        #print(torch.abs((fpr - threshold)))
+        _, min_idx = torch.min(torch.abs((fpr - threshold)), -1)
+        values.append((hparam_combo, e, min_idx.item(),
+                        fpr[min_idx].item(), ccr[min_idx].item()))
+
+    with open(path, 'w') as file_out:
+        writer = csv.writer(file_out)
+        for e in values:
+            writer.writerow(e)
+
+    print("CCR@FPR written in", path)
+    return values
+
+def get_avail_ccr_at_fpr(hparam_combo, path, fpr, ccr, cfg):
+    """
+    Args:
+        hparam_combo (string): hyperparameter combination that represents the model whose oscr metrics are analysed
+        path (string, pathlib.Path): path to the csv file where oscr metrics are stored
+        fpr (torch.Tensor): tensor representing the (oscr) false positive rate
+        ccr (torch.Tensor): tensor representing the (oscr) correct classification rate
+        fpr_thresholds (list<float>): list of false positive rate (fpr) thresholds that are used to select the best model in the validation procedure in a "ccr@fpr" fashion (see Dhamija et al., 2018)
+    """
+    assert fpr.shape == ccr.shape, 'shape mismatch between torch tensors'
+
+    values = [('model', 'fpr_threshold', 'idx_closest_fpr', 'fpr', 'ccr')]
+
+    for index, e in enumerate(cfg.fpr_thresholds):
+        #threshold = torch.Tensor([e]*fpr.shape[0])
+        lower_value = []
+        lower_index = []
+        for i, f in enumerate(fpr):
+            if f<e:
+                lower_value.append(f)
+                lower_index.append(i)
+        if len(lower_value)>0:
+            max_index= np.argmax(np.array(lower_value))
+            f_index = lower_index[max_index]
+
+        #print(torch.abs((fpr - threshold)))
+        #_, min_idx = torch.min(torch.abs((fpr - threshold)), -1)
+            values.append((hparam_combo, e, f_index, fpr[f_index].item(), ccr[f_index].item()))
+
+    with open(path, 'w') as file_out:
+        writer = csv.writer(file_out)
+        for e in values:
+            writer.writerow(e)
+
+    print("CCR@FPR written in", path)
+    return values
+
+def validate(gt, logits, features, scores, model_dict, hyperparams, cfg):
+
+    #model_dict is trained model with openmax or evm which has weibull distributions saved
+    #hyperparams are hyperparameters being stored for openmax and evm such as distance multiplier, distance metric, alpha etc.
+
+
+
+    #gt, features, logits = torch.Tensor(gt)[:, None], torch.Tensor(features), torch.Tensor(logits)
+
+    #feat_dict, _ = compose_dicts(gt, features, logits)
+
+
+    if cfg.algorithm.type == 'openmax':
+        #scores are being adjusted her through openmax alpha
+        print("adjusting probabilities for openmax with alpha on validation set)")
+        for index, _ in enumerate(hyperparams.alpha):
+            scores = compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams, index)
+            ccr, fpr = calculate_oscr(gt, np.array(scores), unk_label=-1)
+            get_avail_ccr_at_fpr(model_dict['hparam_combo'], cfg.output_directory/('CCR@FPR_' + f"{cfg.loss.type}_{cfg.algorithm.type}_"+ model_dict['hparam_combo'] + "_alpha_" + str(hyperparams.alpha[index]) + "_"+hyperparams.distance_metric + ".csv"), torch.Tensor(fpr), torch.Tensor(ccr), cfg)
+    elif cfg.algorithm.type=='evm':
+        print("computing probabilities for evm on validation set")
+        scores = compute_probs(gt, logits, features, scores, model_dict, cfg, hyperparams)
+        ccr, fpr = calculate_oscr(gt, np.array(scores), unk_label=-1)
+        print(ccr, fpr)
+        get_avail_ccr_at_fpr(model_dict['hparam_combo'], cfg.output_directory/('CCR@FPR_' + f"{cfg.loss.type}_{cfg.algorithm.type}_"+ model_dict['hparam_combo'] + "_"+hyperparams.distance_metric + ".csv"), torch.Tensor(fpr), torch.Tensor(ccr), cfg)
+
+
+
+    #file_path = args.output_directory / f"{args.loss}_{cfg.algorithm.type}_val_arr{suffix}.npz"
+    #np.savez(file_path, gt=gt, logits=logits, features=features, scores=scores)
+    #print(f"Target labels, logits, features and scores saved in: {file_path}")
+
+    #get_ccr_at_fpr(hparam_combo, args.output_directory, fpr, ccr, cfg)
+
 
 def openmax_hyperparams(tailsize, dist_mult, translate_amount, dist_metric, alpha):
 
@@ -183,7 +360,13 @@ def worker(cfg):
             imagenet_path=cfg.data.imagenet_path,
             transform=train_tr
         )
-        train_ds.remove_negative_label()
+        #HB things might be different for garbage
+        if cfg.loss.type == "garbage":
+            # Only change the unknown label of the training dataset
+            train_ds.replace_negative_label()
+        else:
+            train_ds.remove_negative_label()
+
     else:
         raise FileNotFoundError("train file does not exist")
 
@@ -210,14 +393,15 @@ def worker(cfg):
     device(model)
     logger.debug('\n')
 
-    print("GPU:", cfg.gpu, cfg.algorithm.type)
+    print("GPU:", cfg.gpu, cfg.algorithm.type, cfg.loss.type)
 
-    print(cfg.output_directory)
+    print('will write in:', cfg.output_directory)
 
     # load checkpoint
-    start_epoch, best_score = load_checkpoint(model, checkpoint=cfg.model_path.format(cfg.output_directory, cfg.loss.type, "threshold", "curr") )
+    base_model_path = cfg.model_path.format(cfg.output_directory, cfg.loss.type, "threshold", "curr")
+    start_epoch, best_score = load_checkpoint(model, checkpoint=base_model_path)
 
-    print(f"Taking model from epoch {start_epoch} that achieved best score {best_score}")
+    print(f"Loaded {base_model_path} and taking model from epoch {start_epoch} that achieved best score {best_score}")
     device(model)
 
     if cfg.algorithm.type== 'openmax':
@@ -242,9 +426,17 @@ def worker(cfg):
             model=model,
             loader=train_loader
             )
+
+    if cfg.loss.type=='garbage':
+        biggest_label = np.sort(np.unique(gt))[-1]
+        print(biggest_label)
+        gt[gt==biggest_label] = -1
+        logits = logits[:,:-1]
+        features = features[:,:-1]
+
     gt, features, logits = torch.Tensor(gt)[:, None], torch.Tensor(features), torch.Tensor(logits)
 
-    kkc = collect_pos_classes(gt)
+    kkc = collect_pos_classes(gt) #HBfor garbage this returns class 116 which was for negative classees.
 
     targets, features, logits = postprocess_train_data(gt, features, logits)
     #print(kkc)
