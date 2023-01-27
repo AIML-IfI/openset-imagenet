@@ -3,7 +3,7 @@ import time
 import sys
 import pathlib
 from collections import OrderedDict, defaultdict
-import numpy as np
+import numpy
 import torch
 from torch.optim import lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
@@ -18,11 +18,6 @@ from .dataset import ImagenetDataset
 from .model import ResNet50
 from .losses import AverageMeter, EarlyStopping, EntropicOpensetLoss
 import tqdm
-from .context import approaches, architectures, data_prep, tools
-import openset_imagenet
-import pandas as pd
-import pickle
-from vast import opensetAlgos
 
 
 def set_seeds(seed):
@@ -33,7 +28,7 @@ def set_seeds(seed):
     """
     torch.manual_seed(seed)
     random.seed(seed)
-    np.random.seed(seed)
+    numpy.random.seed(seed)
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = Falsegg
 
@@ -219,7 +214,7 @@ def get_arrays(model, loader):
         all_scores = torch.empty((data_len, logits_dim), device="cpu")
 
         index = 0
-        for images, labels in tqdm.tqdm(loader):
+        for images, labels in loader:
             curr_b_size = labels.shape[0]  # current batch size, very last batch has different value
             images = device(images)
             labels = device(labels)
@@ -256,7 +251,7 @@ def worker(cfg):
     msg_format = "{time:DD_MM_HH:mm} {name} {level}: {message}"
     logger.configure(handlers=[{"sink": sys.stderr, "level": "INFO", "format": msg_format}])
     logger.add(
-        sink= cfg.output_directory / cfg.log_name,
+        sink= pathlib.Path(cfg.output_directory) / cfg.log_name,
         format=msg_format,
         level="INFO",
         mode='w')
@@ -297,8 +292,6 @@ def worker(cfg):
         elif cfg.loss.type == "softmax":
             # remove the negative label from softmax training set, not from val set!
             train_ds.remove_negative_label()
-
-
     else:
         raise FileNotFoundError("train/validation file does not exist")
 
@@ -323,9 +316,6 @@ def worker(cfg):
         logger.warning("No GPU device selected, training will be extremely slow")
         set_device_cpu()
 
-    #vast openmax uses device.index which can be achiavable through this assignment. 
-    dev = torch.device(cfg.gpu if torch.cuda.is_available() else 'cpu')
-    
     # Callbacks
     early_stopping = None
     if cfg.patience > 0:
@@ -361,10 +351,6 @@ def worker(cfg):
                      logit_bias=False)
     device(model)
 
-    ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.alg) + "_curr.pth"
-    print(ckpt_name)
-
-
     # Create optimizer
     if cfg.opt.type == "sgd":
         opt = torch.optim.SGD(params=model.parameters(), lr=cfg.opt.lr, momentum=0.9)
@@ -385,19 +371,11 @@ def worker(cfg):
         # Resume a training from a checkpoint
     if cfg.checkpoint is not None:
         # Get the relative path of the checkpoint wrt train.py
-        if cfg.train_mode == "finetune": # TODO: Simplify the modes, finetune is not necessary
-            START_EPOCH, _ = load_checkpoint(
-                model=model,
-                checkpoint=cfg.checkpoint,
-                opt=None,
-                scheduler=None)
-            BEST_SCORE = 0
-        else:
-            START_EPOCH, BEST_SCORE = load_checkpoint(
-                model=model,
-                checkpoint=cfg.checkpoint,
-                opt=opt,
-                scheduler=scheduler)
+        START_EPOCH, BEST_SCORE = load_checkpoint(
+            model=model,
+            checkpoint=cfg.checkpoint,
+            opt=opt,
+            scheduler=scheduler)
         logger.info(f"Best score of loaded model: {BEST_SCORE:.3f}. 0 is for fine tuning")
         logger.info(f"Loaded {cfg.checkpoint} at epoch {START_EPOCH}")
 
@@ -411,7 +389,6 @@ def worker(cfg):
     logger.info("========== Training ==========")
     logger.info(f"Initial epoch: {START_EPOCH}")
     logger.info(f"Last epoch: {cfg.epochs}")
-    logger.info(f"General mode: {cfg.train_mode}")
     logger.info(f"Batch size: {cfg.batch_size}")
     logger.info(f"workers: {cfg.workers}")
     logger.info(f"Loss: {cfg.loss.type}")
@@ -474,12 +451,12 @@ def worker(cfg):
             f"v:{val_time:.1f}s")
 
         # save best model and current model
-        ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.algorithm.type) + "_curr.pth"
+        ckpt_name = cfg.model_path.format(cfg.output_directory, cfg.loss.type, "threshold", "curr")
         save_checkpoint(ckpt_name, model, epoch, opt, curr_score, scheduler=scheduler)
 
         if curr_score > BEST_SCORE:
             BEST_SCORE = curr_score
-            ckpt_name = str(cfg.output_directory / cfg.loss.type) + "_" + str(cfg.algorithm.type) + "_best.pth"
+            ckpt_name = cfg.model_path.format(cfg.output_directory, cfg.loss.type, "threshold", "best")
             # ckpt_name = f"{cfg.name}_best.pth"  # best model
             logger.info(f"Saving best model {ckpt_name} at epoch: {epoch}")
             save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)
@@ -494,6 +471,3 @@ def worker(cfg):
     # clean everything
     del model
     logger.info("Training finished")
-        
-            
-
