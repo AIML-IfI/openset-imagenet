@@ -36,6 +36,7 @@ opt:
 # Algorithm parameters
 algorithm:
   type: evm
+  output_model_path: "{}/{}_{}_{}_{}.pkl" # directory/loss.type_alg.type_key_distance_metric.pth
 
   tailsize: [100, 250, 500, 750, 1000]
   cover_threshold: [1]
