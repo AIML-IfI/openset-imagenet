@@ -195,17 +195,20 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
             trackers["conf_unk"].update(neg_conf, neg_count)
 
 
-def get_arrays(model, loader):
+def get_arrays(model, loader, garbage):
     """ Extract deep features, logits and targets for all dataset. Returns numpy arrays
 
     Args:
         model (torch model): Model.
         loader (torch dataloader): Data loader.
+        garbage (bool): Whether to remove final logit value
     """
     model.eval()
     with torch.no_grad():
         data_len = len(loader.dataset)         # dataset length
         logits_dim = model.logits.out_features  # logits output classes
+        if garbage:
+            logits_dim -= 1
         features_dim = model.logits.in_features  # features dimensionality
         print("logits dim: ", logits_dim, "feature dim:", features_dim)
         all_targets = torch.empty(data_len, device="cpu")  # store all targets
@@ -218,13 +221,19 @@ def get_arrays(model, loader):
             curr_b_size = labels.shape[0]  # current batch size, very last batch has different value
             images = device(images)
             labels = device(labels)
-            logit, feature = model(images)
-            score = torch.nn.functional.softmax(logit, dim=1)
+            logits, feature = model(images)
+            # compute softmax scores
+            scores = torch.nn.functional.softmax(logits, dim=1)
+            # shall we remove the logits of the unknown class?
+            # We do this AFTER computing softmax, of course.
+            if garbage:
+                logits = logits[:,:-1]
+                scores = scores[:,:-1]
             # accumulate results in all_tensor
             all_targets[index:index + curr_b_size] = labels.detach().cpu()
-            all_logits[index:index + curr_b_size] = logit.detach().cpu()
+            all_logits[index:index + curr_b_size] = logits.detach().cpu()
             all_feat[index:index + curr_b_size] = feature.detach().cpu()
-            all_scores[index:index + curr_b_size] = score.detach().cpu()
+            all_scores[index:index + curr_b_size] = scores.detach().cpu()
             index += curr_b_size
         return(
             all_targets.numpy(),

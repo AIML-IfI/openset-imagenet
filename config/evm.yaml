@@ -38,8 +38,8 @@ algorithm:
   type: evm
   output_model_path: "{}/{}_{}_{}_{}.pkl" # directory/loss.type_alg.type_key_distance_metric.pth
 
-  tailsize: [100, 250, 500, 750, 1000]
+  tailsize: [25, 50, 75, 100, 150, 200, 300, 500, 1000]
   cover_threshold: [1]
-  distance_multiplier: [0.1, 0.3, 0.5, 0.7, 0.9, 1.0]
+  distance_multiplier: [0.20, 0.30, 0.40, 0.50, 0.70, 0.90, 1.00]
   distance_metric: cosine
   chunk_size: 100

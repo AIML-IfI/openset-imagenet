@@ -203,7 +203,7 @@ def validate_proser(model, data_loader, loss_fn, n_classes, trackers, cfg):
         if neg_count:
             trackers["conf_unk"].update(neg_conf, neg_count)
 
-def get_arrays_for_proser(model, loader):
+def get_arrays(model, loader):
     """ Extract deep features, logits and targets for all dataset. Returns numpy arrays
 
     Args:
@@ -227,16 +227,16 @@ def get_arrays_for_proser(model, loader):
             curr_b_size = labels.shape[0]  # current batch size, very last batch has different value
             images = device(images)
             labels = device(labels)
-            logit, dummy, feature = model(images)
-            #print("logit shape:", logit.shape, "dummy shape:", dummy.shape)
-            score = torch.nn.functional.softmax(torch.cat((logit, dummy.view(logit.shape[0], 1)), dim=1), dim=1)
-            #print("score shape:", score.shape, "dummy shape:", dummy.shape)
-            score = score[:,:-1]
+            logits, dummy, feature = model(images)
+            # Compute softmax over all logits, including the dummy class
+            scores = torch.nn.functional.softmax(torch.cat((logits, dummy.view(logits.shape[0], 1)), dim=1), dim=1)
+            # We always subtract the scores for the unknown class, after computing softmax
+            scores = scores[:,:-1]
             # accumulate results in all_tensor
             all_targets[index:index + curr_b_size] = labels.detach().cpu()
-            all_logits[index:index + curr_b_size] = logit.detach().cpu()
+            all_logits[index:index + curr_b_size] = logits.detach().cpu()
             all_feat[index:index + curr_b_size] = feature.detach().cpu()
-            all_scores[index:index + curr_b_size] = score.detach().cpu()
+            all_scores[index:index + curr_b_size] = scores.detach().cpu()
             index += curr_b_size
         return(
             all_targets.numpy(),
@@ -254,10 +254,7 @@ def worker(cfg):
 
     BEST_SCORE = 0.0    # Best validation score
     START_EPOCH = 0     # Initial training epoch
-    #cfg.log_name = str(cfg.output_directory) + '/'+ str(cfg.loss.type) + "_" + str(cfg.algorithm) + "_" + str(cfg.epochs) + "_" + str(cfg.algorithm.dummy_count) + "_" + str(cfg.log_name)
-    # Configure logger. Log only on first process. Validate only on first process. #str(cfg.loss.type) + "_" + str(cfg.algorithm) + "_" + str(cfg.epochs) + "_" + str(cfg.algorithm.dummy_count) + "_" + str(cfg.log_name)
     cfg.log_name = cfg.log_name.format(cfg.loss.type, cfg.algorithm.type, cfg.epochs, cfg.algorithm.dummy_count)
-    #cfg.output_directory/cfg.log_name
     msg_format = "{time:DD_MM_HH:mm} {name} {level}: {message}"
     logger.configure(handlers=[{"sink": sys.stderr, "level": "INFO", "format": msg_format}])
     logger.add(
@@ -395,7 +392,7 @@ def worker(cfg):
             scheduler = None
         )
 
-    print(f"Loaded {cfg.algorithm.base_model.format(cfg.protocol, cfg.loss.type)} and taking model from epoch {start_epoch} that achieved best score {best_score}")
+        print(f"Loaded {cfg.model_path.format(cfg.output_directory, cfg.loss.type, 'threshold', 'curr')} and taking model from epoch {start_epoch} that achieved best score {best_score}")
 
 
     # Print info to console and setup summary writer

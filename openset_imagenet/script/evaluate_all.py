@@ -46,7 +46,7 @@ def get_args():
 
     parser.add_argument(
         "--algorithm", "-alg",
-        choices = ["threshold", "openmax", "proser", "evm"],
+        choices = ["threshold", "openmax", "proser", "evm", "maxlogit"],
         help = "Which algorithm to evaluate. Specific parameters should be in the yaml file"
     )
 
@@ -70,7 +70,7 @@ def get_args():
     except:
         pass
     args.output_directory = Path(args.output_directory)
-  
+
     args.parallel = args.gpus is not None and len(args.gpus) > 1
     return args
 
@@ -94,7 +94,7 @@ def main():
         cfg.gpu = args.gpus[0]
 
     cfg.protocol = args.protocols
-    cfg.algorithm.type = args.algorithm 
+    cfg.algorithm.type = args.algorithm
     cfg.output_directory = args.output_directory
 
     gpu = 0
@@ -104,7 +104,7 @@ def main():
     if cfg.algorithm.type == 'openmax':
         for ts in cfg.algorithm.tailsize:
             for dm in cfg.algorithm.distance_multiplier:
-                    for alpha in cfg.algorithm.alpha_om: 
+                    for alpha in cfg.algorithm.alpha_om:
                         print(ts, dm, alpha)
                         #python openset_imagenet/script/evaluate_algs.py config/test.yaml softmax 1 --gpu 1 --use-best -alg openmax
                         #call = ["python openset_imagenet/script/evaluate_algs.py", "config/test.yaml", "softmax", "1", "--gpu 1", "-alg openmax"]
@@ -117,8 +117,8 @@ def main():
                         else:
                             processes[0].append(call)
 
- 
-    train_one_gpu(processes) '''              
+
+    train_one_gpu(processes) '''
 
 if __name__=="__main__":
     main()
