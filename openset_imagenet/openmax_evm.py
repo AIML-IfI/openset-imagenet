@@ -37,6 +37,14 @@ def get_inference_function(type):
     }[type]
 
 
+def get_param_string(type, **kwargs):
+    if type == "openmax":
+        # CF: https://github.com/Vastlab/vast/blob/main/vast/opensetAlgos/openmax.py#L100
+        return f"TS_{kwargs['tailsize']}_DM_{kwargs['distance_multiplier']:.2f}",
+    elif type == "evm":
+        # CF: https://github.com/Vastlab/vast/blob/main/vast/opensetAlgos/EVM.py#L294
+        return f"TS_{kwargs['tailsize']}_DM_{kwargs['distance_multiplier']:.2f}_CT_{kwargs['cover_threshold']:.2f}"
+
 
 def compose_dicts(targets, features, logits):
     df_dim = features.shape[-1] if len(features.shape) > 1 else 1
@@ -166,11 +174,11 @@ def openmax_alpha(
     return predicted_class, prediction_score
 
 
-def compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams, alpha_index=0):
+def compute_adjust_probs(gt, logits, features, scores, model_dict, algorithm, gpu_index, hyperparams, alpha_index=0):
     #alpha index is used to indicate which alpha value to be tested in case there are multiple of them given
     #arrange for openmax inference/alpha
     gt, features, logits = torch.Tensor(gt)[:, None], torch.Tensor(features), torch.Tensor(logits)
-    kkc = collect_pos_classes(gt)
+#    kkc = collect_pos_classes(gt)
     #targets, features, logits = postprocess_train_data(gt, features, logits)
     #print(kkc)
     pos_classes = collect_pos_classes(gt)
@@ -180,7 +188,7 @@ def compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperpar
     print(hyperparams)
 
     #for alpha in hyperparams.alpha:
-    probabilities = list(get_inference_function(cfg.algorithm.type)(pos_classes_to_process=feat_dict.keys(), features_all_classes=feat_dict, args=hyperparams, gpu=cfg.gpu, models=model_dict['model']))
+    probabilities = list(get_inference_function(algorithm)(pos_classes_to_process=feat_dict.keys(), features_all_classes=feat_dict, args=hyperparams, gpu=gpu_index, models=model_dict['model']))
     dict_probs = dict(list(zip(*probabilities))[1])
     for idx, key in enumerate(dict_probs.keys()):
         print(list(logit_dict.keys())[idx], key, type(list(logit_dict.keys())[idx]), type(key))
@@ -190,7 +198,7 @@ def compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperpar
         dict_probs[key] = probs_openmax
 
     all_probs = []
-    for key in range(len(kkc)):
+    for key in range(len(pos_classes)):
         #print(key, dict_probs[key].shape[-1])
         all_probs.extend(dict_probs[key].tolist())
 
@@ -201,12 +209,12 @@ def compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperpar
 
     return all_probs
 
-def compute_probs(gt, logits, features, scores, model_dict, cfg, hyperparams):
+def compute_probs(gt, logits, features, scores, model_dict, algorithm, gpu_index, hyperparams):
     #arrange for EVM
     gt, features, logits = torch.Tensor(gt)[:, None], torch.Tensor(features), torch.Tensor(logits)
-    kkc = collect_pos_classes(gt)
+#    kkc = collect_pos_classes(gt)
     #targets, features, logits = postprocess_train_data(gt, features, logits)
-    print('compute_probs:', kkc)
+#    print('compute_probs:', kkc)
     pos_classes = collect_pos_classes(gt)
     feat_dict, logit_dict = compose_dicts(gt, features, logits)
     feat_dict = {k: v.double() for k, v in feat_dict.items()}
@@ -214,12 +222,12 @@ def compute_probs(gt, logits, features, scores, model_dict, cfg, hyperparams):
     print(hyperparams)
 
 
-    probabilities = list(get_inference_function(cfg.algorithm.type)(pos_classes_to_process=feat_dict.keys(),features_all_classes=feat_dict, args=hyperparams, gpu=cfg.gpu, models=model_dict['model']))
+    probabilities = list(get_inference_function(algorithm)(pos_classes_to_process=feat_dict.keys(),features_all_classes=feat_dict, args=hyperparams, gpu=gpu_index, models=model_dict['model']))
     dict_probs = dict(list(zip(*probabilities))[1])
 
 
     all_probs = []
-    for key in range(len(kkc)):
+    for key in range(len(pos_classes)):
         #print(key, dict_probs[key].shape[-1])
         all_probs.extend(dict_probs[key].tolist())
 
@@ -365,12 +373,12 @@ def validate(gt, logits, features, scores, model_dict, hyperparams, cfg):
         #scores are being adjusted her through openmax alpha
         print("adjusting probabilities for openmax with alpha on validation set)")
         for index, _ in enumerate(hyperparams.alpha):
-            scores = compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperparams, index)
+            scores = compute_adjust_probs(gt, logits, features, scores, model_dict, cfg.algorithm.type, cfg.gpu, hyperparams, index)
             ccr, fpr = calculate_oscr(gt, np.array(scores), unk_label=-1)
             get_avail_ccr_at_fpr(model_dict['hparam_combo'], cfg.output_directory/('CCR@FPR_' + f"{cfg.loss.type}_{cfg.algorithm.type}_"+ model_dict['hparam_combo'] + "_alpha_" + str(hyperparams.alpha[index]) + "_"+hyperparams.distance_metric + ".csv"), torch.Tensor(fpr), torch.Tensor(ccr), cfg)
     elif cfg.algorithm.type=='evm':
         print("computing probabilities for evm on validation set")
-        scores = compute_probs(gt, logits, features, scores, model_dict, cfg, hyperparams)
+        scores = compute_probs(gt, logits, features, scores, model_dict, cfg.algorithm.type, cfg.gpu, hyperparams)
         ccr, fpr = calculate_oscr(gt, np.array(scores), unk_label=-1)
         print(ccr, fpr)
         get_avail_ccr_at_fpr(model_dict['hparam_combo'], cfg.output_directory/('CCR@FPR_' + f"{cfg.loss.type}_{cfg.algorithm.type}_"+ model_dict['hparam_combo'] + "_"+hyperparams.distance_metric + ".csv"), torch.Tensor(fpr), torch.Tensor(ccr), cfg)
@@ -493,24 +501,26 @@ def worker(cfg):
 
     print("Feature extraction on training data:")
 
-    if not cfg.parallel:
-        train_loader = tqdm.tqdm(train_loader)
     # extracting arrays for training data
     gt, logits, features, scores = get_arrays(
             model=model,
-            loader=train_loader
+            loader=train_loader,
+            garbage=cfg.loss.type=="garbage"
             )
 
+    """
+    # I don't think that this makes sense in any possible way.
     if cfg.loss.type=='garbage':
         biggest_label = np.sort(np.unique(gt))[-1]
         print(biggest_label)
         gt[gt==biggest_label] = -1
         logits = logits[:,:-1]
         features = features[:,:-1]
+    """
 
     gt, features, logits = torch.Tensor(gt)[:, None], torch.Tensor(features), torch.Tensor(logits)
 
-    kkc = collect_pos_classes(gt) #HBfor garbage this returns class 116 which was for negative classees.
+#    kkc = collect_pos_classes(gt) #HBfor garbage this returns class 116 which was for negative classees.
 
     targets, features, logits = postprocess_train_data(gt, features, logits)
     #print(kkc)
