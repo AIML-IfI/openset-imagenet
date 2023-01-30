@@ -37,8 +37,8 @@ opt:
 algorithm:
   type: evm
 
-  tailsize: [10]
+  tailsize: [100 250 500 750 1000]
   cover_threshold: [1]
-  distance_multiplier: [1.5]
+  distance_multiplier: [0.1, 0.3, 0.5, 0.7, 0.9, 1.0]
   distance_metric: cosine
   chunk_size: 100
