@@ -442,12 +442,8 @@ def worker(cfg):
             imagenet_path=cfg.data.imagenet_path,
             transform=train_tr
         )
-        #HB things might be different for garbage
-        if cfg.loss.type == "garbage":
-            # Only change the unknown label of the training dataset
-            train_ds.replace_negative_label()
-        else:
-            train_ds.remove_negative_label()
+        # We train only on positive labels for now (we might incorporate negative labels as extra negatives for EVM later)
+        train_ds.remove_negative_label()
 
     else:
         raise FileNotFoundError("train file does not exist")
@@ -467,7 +463,7 @@ def worker(cfg):
         logger.warning("No GPU device selected, feature extraction will be slow")
         set_device_cpu()
 
-    n_classes = train_ds.label_count
+    n_classes = train_ds.label_count + (1 if cfg.loss.type=="garbage" else 0)
     # Create the model
     model = ResNet50(fc_layer_dim=n_classes,
                      out_features=n_classes,
