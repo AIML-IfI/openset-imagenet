@@ -242,9 +242,11 @@ def save_models(all_hyper_param_models,pos_classes, cfg):
             hparam_combo_to_model[key] = dict(hparam_combo_to_model[key])
 
             # store models per hyperparameter combination as a (hparam_combo, model)-tuple
-            model_name = f'{cfg.loss.type}_{cfg.algorithm.type}_{key}_{cfg.algorithm.distance_metric}.pkl'
+            model_name = cfg.algorithm.output_model_path.format(
+                cfg.output_directory, cfg.loss.type, cfg.algorithm.type, key, cfg.algorithm.distance_metric
+            )
 
-            file_handler = open(pathlib.Path(cfg.output_directory) / model_name, 'wb')
+            file_handler = open(model_name, 'wb')
 
             obj_serializable = {'approach_train': cfg.algorithm.type, 'model_name': model_name,
                     'hparam_combo': key, 'distance_metric': cfg.algorithm.distance_metric, 'model':  hparam_combo_to_model[key]}

@@ -36,9 +36,10 @@ opt:
 # Algorithm parameters
 algorithm:
   type: openmax
+  output_model_path: "{}/{}_{}_{}_{}.pkl" # directory/loss.type_alg.type_key_distance_metric.pth
 
-  tailsize: [100, 250, 500, 750, 1000]
-  distance_multiplier: [1.0, 1.1, 1.3, 1.5, 1.7, 1.9, 2.0]
+  tailsize: [10, 100, 250, 500, 750, 1000]
+  distance_multiplier: [1.50, 1.7, 2.0, 2.3]
   translateAmount: [1]
   distance_metric: cosine
-  alpha: [1,3,5,7,10]
+  alpha: [2, 3, 5, 10]
