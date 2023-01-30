@@ -24,6 +24,17 @@ import csv
 from .util import calculate_oscr
 
 
+def get_training_function(type):
+    return {
+        'openmax' : opensetAlgos.OpenMax_Training,
+        'evm' : opensetAlgos.EVM_Training
+    }[type]
+
+def get_inference_function(type):
+    return {
+        'openmax' : opensetAlgos.OpenMax_Inference,
+        'evm' : opensetAlgos.EVM_Inference
+    }[type]
 
 
 
@@ -169,7 +180,7 @@ def compute_adjust_probs(gt, logits, features, scores, model_dict, cfg, hyperpar
     print(hyperparams)
 
     #for alpha in hyperparams.alpha:
-    probabilities = list(getattr(opensetAlgos, f'{vars(cfg.alg_dict)[cfg.algorithm.type]}_Inference')(pos_classes_to_process=feat_dict.keys(), features_all_classes=feat_dict, args=hyperparams, gpu=cfg.gpu, models=model_dict['model']))
+    probabilities = list(get_inference_function(cfg.algorithm.type)(pos_classes_to_process=feat_dict.keys(), features_all_classes=feat_dict, args=hyperparams, gpu=cfg.gpu, models=model_dict['model']))
     dict_probs = dict(list(zip(*probabilities))[1])
     for idx, key in enumerate(dict_probs.keys()):
         print(list(logit_dict.keys())[idx], key, type(list(logit_dict.keys())[idx]), type(key))
@@ -203,7 +214,7 @@ def compute_probs(gt, logits, features, scores, model_dict, cfg, hyperparams):
     print(hyperparams)
 
 
-    probabilities = list(getattr(opensetAlgos, f'{vars(cfg.alg_dict)[cfg.algorithm.type]}_Inference')(pos_classes_to_process=feat_dict.keys(),features_all_classes=feat_dict, args=hyperparams, gpu=cfg.gpu, models=model_dict['model']))
+    probabilities = list(get_inference_function(cfg.algorithm.type)(pos_classes_to_process=feat_dict.keys(),features_all_classes=feat_dict, args=hyperparams, gpu=cfg.gpu, models=model_dict['model']))
     dict_probs = dict(list(zip(*probabilities))[1])
 
 
@@ -512,11 +523,7 @@ def worker(cfg):
     logger.debug('\n')
     logger.info(f'Starting {cfg.algorithm.type} Training Procedure:')
 
-    training_fct = {
-        'openmax' : opensetAlgos.OpenMax_Training,
-        'evm' : opensetAlgos.EVM_Training
-
-    }[cfg.algorithm.type]
+    training_fct = get_training_function(cfg.algorithm.type)
 
     #performs training on all parameter combinations
     #Training method returns iterator over (hparam_combo, (class, {model}))
