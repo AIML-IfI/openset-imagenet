@@ -44,4 +44,4 @@ algorithm:
   lambda1: 1.
   lambda2: 1.
   alpha: 1.
-  dummy_count: 1
+  dummy_counts: [1, 2, 5, 10, 25, 100]

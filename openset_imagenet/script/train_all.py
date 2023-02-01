@@ -11,7 +11,7 @@ import os
 #  print(cmd)
 #  print(" ".join(cmd))
 
-def get_args():
+def command_line_options(command_line_arguments=None):
     """ Arguments handler.
 
     Returns:
@@ -70,7 +70,7 @@ def get_args():
         help = "Continue training when old snapshot is available"
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(command_line_arguments)
     args.parallel = args.gpus is not None and len(args.gpus) > 1
     return args
 
@@ -94,7 +94,7 @@ def commands(args):
         config.protocol = protocol
         # check to continue
         if args.continue_training:
-          checkpoint_file = config.model_path.format(outdir, loss_function, algorithm, "curr")
+          checkpoint_file = config.algorithm.output_model_path.format(config.output_directory, config.loss.type, config.algorithm.type, config.epochs, config.algorithm.dummy_counts[0], "curr") if algorithm == "proser" else config.model_path.format(outdir, loss_function, algorithm, "curr")
           if os.path.exists(checkpoint_file):
             config.checkpoint = checkpoint_file
 
@@ -119,7 +119,7 @@ def train_one_gpu(processes):
     subprocess.call(process)
 
 def main():
-  args = get_args()
+  args = command_line_options()
   if args.parallel:
     # we run in parallel
     with multiprocessing.pool.ThreadPool(len(args.gpus)) as pool:

@@ -92,8 +92,8 @@ def command_line_options(command_line_arguments=None):
     suffix = 'linear' if args.linear else 'best' if args.use_best else 'last'
     if args.sort_by_loss:
         suffix += "_by_loss"
-    args.plots = args.plots or f"Results_{suffix}.pdf"
-    args.table = args.table or f"Results_{suffix}.tex"
+    args.plots = args.plots or f"results/Results_{suffix}.pdf"
+    args.table = args.table or f"results/Results_{suffix}.tex"
     return args
 
 
