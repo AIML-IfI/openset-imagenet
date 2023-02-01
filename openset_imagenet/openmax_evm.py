@@ -69,8 +69,8 @@ def compose_dicts(targets, features, logits):
         count_logits += logit_dict[k].shape[0]
 
     logger.debug('\n')
-    logger.info(f'Number of samples included in the dict: {count_feat}')
-    logger.info(f'Number of classes (i.e. # dict keys): {len(list(feat_dict.keys()))}')
+    logger.debug(f'Number of samples included in the dict: {count_feat}')
+    logger.debug(f'Number of classes (i.e. # dict keys): {len(list(feat_dict.keys()))}')
     return feat_dict, logit_dict
 
 def postprocess_train_data(targets, features, logits):
@@ -172,7 +172,7 @@ def openmax_alpha(
     return predicted_class, prediction_score
 
 
-def compute_adjust_probs(gt, logits, features, scores, model_dict, algorithm, gpu_index, hyperparams, alpha_index=0):
+def compute_adjust_probs(gt, logits, features, scores, model_dict, algorithm, gpu_index, hyperparams, alpha):
     #alpha index is used to indicate which alpha value to be tested in case there are multiple of them given
     # arrange for openmax inference/alpha
     gt, features, logits = torch.Tensor(gt)[:, None], torch.Tensor(features), torch.Tensor(logits)
@@ -186,7 +186,7 @@ def compute_adjust_probs(gt, logits, features, scores, model_dict, algorithm, gp
     for idx, key in enumerate(dict_probs.keys()):
         assert key == list(logit_dict.keys())[idx]
         assert dict_probs[key].shape[1] == logit_dict[key].shape[1]
-        probs_openmax = openmax_alpha(dict_probs[key], logit_dict[key], alpha=hyperparams.alpha[alpha_index], ignore_unknown_class=True)
+        probs_openmax = openmax_alpha(dict_probs[key], logit_dict[key], alpha=alpha, ignore_unknown_class=True)
         dict_probs[key] = probs_openmax
 
     all_probs = []
@@ -268,10 +268,10 @@ def validate(gt, logits, features, scores, model_dict, hyperparams, cfg):
     if cfg.algorithm.type == 'openmax':
         #scores are being adjusted her through openmax alpha
         print("adjusting probabilities for openmax with alpha on validation set)")
-        for index, _ in enumerate(hyperparams.alpha):
-            scores = compute_adjust_probs(gt, logits, features, scores, model_dict, cfg.algorithm.type, cfg.gpu, hyperparams, index)
+        for alpha in hyperparams.alpha:
+            scores = compute_adjust_probs(gt, logits, features, scores, model_dict, cfg.algorithm.type, cfg.gpu, hyperparams, alpha)
             ccr, fpr = calculate_oscr(gt, np.array(scores), unk_label=-1)
-            get_avail_ccr_at_fpr(model_dict['hparam_combo'], cfg.output_directory/('CCR@FPR_' + f"{cfg.loss.type}_{cfg.algorithm.type}_"+ model_dict['hparam_combo'] + "_alpha_" + str(hyperparams.alpha[index]) + "_"+hyperparams.distance_metric + ".csv"), torch.Tensor(fpr), torch.Tensor(ccr), cfg)
+            get_avail_ccr_at_fpr(model_dict['hparam_combo'], cfg.output_directory/('CCR@FPR_' + f"{cfg.loss.type}_{cfg.algorithm.type}_"+ model_dict['hparam_combo'] + "_alpha_" + str(alpha) + "_"+hyperparams.distance_metric + ".csv"), torch.Tensor(fpr), torch.Tensor(ccr), cfg)
     elif cfg.algorithm.type=='evm':
         print("computing probabilities for evm on validation set")
         scores = compute_probs(gt, logits, features, scores, model_dict, cfg.algorithm.type, cfg.gpu, hyperparams)

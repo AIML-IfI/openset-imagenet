@@ -135,6 +135,23 @@ def calculate_oscr(gt, scores, unk_label=-1):
     return ccr, fpr
 
 
+def ccr_at_fpr(gt, scores, fpr_values, unk_label=-1):
+
+    # compute ccr and fpr values from scores
+    ccr, fpr = calculate_oscr(gt, scores, unk_label)
+
+    ccrs = []
+    for t in fpr_values:
+        # get the FPR value that is closest, but above the current threshold
+        candidates = np.nonzero(np.maximum(t - fpr, 0))[0]
+        if candidates.size > 0:
+            ccrs.append(ccr[candidates[0]])
+        else:
+            ccrs.append(None)
+
+    return ccrs
+
+
 # get distinguishable colors
 import matplotlib.cm
 colors = matplotlib.cm.tab10(range(10))

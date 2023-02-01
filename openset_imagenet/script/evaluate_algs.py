@@ -1,5 +1,4 @@
-""" Independent code for inference in testing dataset. The functions are included and executed
-in the train.py script."""
+""" Independent code for inference in testing dataset."""
 import argparse
 import os, sys
 from pathlib import Path
@@ -10,7 +9,7 @@ from torchvision import transforms as tf
 from torch.utils.data import DataLoader
 import openset_imagenet
 import pickle
-from openset_imagenet.openmax_evm import compute_adjust_probs, compute_probs, compose_dicts, get_param_string
+from openset_imagenet.openmax_evm import compute_adjust_probs, compute_probs, get_param_string
 from loguru import logger
 
 def command_line_options(command_line_arguments=None):
@@ -165,14 +164,13 @@ def post_process(gt, logits, features, scores, cfg, protocol, loss, algorithm, o
         return
     model_dict = pickle.load(open(model_path, "rb"))
 
+    hyperparams = openset_imagenet.util.NameSpace(dict(distance_metric = opt.distance_metric))
     if algorithm == 'openmax':
         #scores are being adjusted her through openmax alpha
         logger.info("adjusting probabilities for openmax with alpha")
-        hyperparams = openset_imagenet.util.NameSpace(dict(distance_metric = opt.distance_metric, alpha = [popt.alpha]))
-        return compute_adjust_probs(gt, logits, features, scores, model_dict, "openmax", gpu, hyperparams, alpha_index=0)
+        return compute_adjust_probs(gt, logits, features, scores, model_dict, "openmax", gpu, hyperparams, popt.alpha)
     elif algorithm == 'evm':
         logger.info("computing probabilities for evm")
-        hyperparams = openset_imagenet.util.NameSpace(dict(distance_metric = opt.distance_metric))
         return compute_probs(gt, logits, features, scores, model_dict, "evm", gpu, hyperparams)
 
 def write_scores(gt, logits, features, scores, loss, algorithm, suffix, output_directory):
@@ -188,7 +186,7 @@ def load_scores(loss, algorithm, suffix, output_directory):
         return None
 
 
-def process_model(protocol, loss, algorithms, cfg, suffix, gpu):
+def process_model(protocol, loss, algorithms, cfg, suffix, gpu, force):
     output_directory = Path(cfg.output_directory)/f"Protocol_{protocol}"
 
     # set device
@@ -208,7 +206,7 @@ def process_model(protocol, loss, algorithms, cfg, suffix, gpu):
         n_classes = test_dataset.label_count - 2  # number of classes - 2 when training was without garbage class
 
     if any(a!="proser" for a in algorithms):
-        base_data = None if args.force else load_scores(loss, "threshold", suffix, output_directory)
+        base_data = None if force else load_scores(loss, "threshold", suffix, output_directory)
         if base_data is None:
             logger.info(f"Loading base model for protocol {protocol}, {loss}")
             # load base model
@@ -232,7 +230,7 @@ def process_model(protocol, loss, algorithms, cfg, suffix, gpu):
                 if scores is not None:
                     write_scores(gt, logits, features, scores, loss, algorithm, suffix, output_directory)
             if algorithm == "proser":
-                proser_data = None if args.force else load_scores(loss, "proser", suffix, output_directory)
+                proser_data = None if force else load_scores(loss, "proser", suffix, output_directory)
                 if proser_data is None:
                     # load proser model
                     logger.info(f"Loading proser model for protocol {protocol}, {loss}")
@@ -264,7 +262,7 @@ def main(command_line_arguments = None):
 
     for protocol in args.protocols:
         for loss in args.losses:
-            process_model(protocol, loss, args.algorithms, cfg, suffix, args.gpu)
+            process_model(protocol, loss, args.algorithms, cfg, suffix, args.gpu, args.force)
 
 if __name__=='__main__':
     main()
