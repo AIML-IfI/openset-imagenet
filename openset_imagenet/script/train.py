@@ -59,9 +59,6 @@ def main(command_line_options = None):
         openset_imagenet.openmax_evm.worker(config)
     elif config.algorithm.type == "proser":
         openset_imagenet.proser.worker(config)
-    elif config.algorithm.type == "maxlogit":
-        # This is the same as threshold, so no need to do anything here
-        pass
     else:
         raise ValueError(f"The training configuration type '{config.algorithm.type}' is not known to the system")
 

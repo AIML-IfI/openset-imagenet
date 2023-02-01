@@ -113,6 +113,7 @@ def calculate_oscr(gt, scores, unk_label=-1):
     # get predicted class for known samples
     pred_class = np.argmax(scores, axis=1)[kn]
     correctly_predicted = pred_class == gt[kn]
+    target_score = scores[kn][range(kn.sum()), gt[kn]]
 
     # get maximum scores for unknown samples
     max_score = np.max(scores, axis=1)[unk]
@@ -123,10 +124,10 @@ def calculate_oscr(gt, scores, unk_label=-1):
     #print(target_score) #HB
     for tau in thresholds:
         # compute CCR value
-        val = (correctly_predicted and (max_score > tau)).sum() / total_kn
+        val = (correctly_predicted & (target_score >= tau)).sum() / total_kn
         ccr.append(val)
 
-        val = (max_score > tau).sum() / total_unk
+        val = (max_score >= tau).sum() / total_unk
         fpr.append(val)
 
     ccr = np.array(ccr)
@@ -134,18 +135,39 @@ def calculate_oscr(gt, scores, unk_label=-1):
     return ccr, fpr
 
 
+# get distinguishable colors
+import matplotlib.cm
+colors = matplotlib.cm.tab10(range(10))
+
 COLORS = {
-    "threshold": "k",
-    "openmax": "g",
-    "proser": "b",
-    "evm": "r",
-    "maxlogit": "r"
+    "threshold": colors[0],
+    "openmax": colors[8],
+    "proser": colors[2],
+    "evm": colors[3],
+    "maxlogits": colors[5]
 }
 
 STYLES = {
     "entropic": "dashed",
     "softmax": "solid",
-    "garbage": "dotted"
+    "garbage": "dotted",
+    "p1": "dashed",
+    "p2": "dotted",
+    "p3": "solid"
+}
+
+NAMES = {
+    "threshold": "Threshold",
+    "openmax": "OpenMax",
+    "proser": "PROSER",
+    "evm": "EVM",
+    "maxlogits": "MaxLogits",
+    "entropic": "EOS",
+    "softmax": "Softmax",
+    "garbage": "Garbage",
+    "p1": "P_1",
+    "p2": "P_2",
+    "p3": "P_3"
 }
 
 def plot_single_oscr(fpr, ccr, ax, loss, algorithm, scale):
@@ -196,18 +218,58 @@ def plot_oscr(arrays, gt, scale='linear', title=None, ax_label_font=13, ax=None,
     """
 
     for loss, loss_arrays in arrays.items():
-        for algorith, scores in loss_array.items():
+        for algorithm, scores in loss_arrays.items():
             ccr, fpr = calculate_oscr(gt, scores, unk_label)
-            ax = plot_single_oscr(x=fpr, y=ccr,
-                              ax=ax, exp_name=methods[idx],
-                              color=color_palette[idx], baseline=False,
+            ax = plot_single_oscr(fpr, ccr,
+                              ax=ax,
+                              loss=loss,
+                              algorithm=algorithm,
                               scale=scale)
     if title is not None:
         ax.set_title(title, fontsize=ax_label_font)
     ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
     ax.tick_params(labelbottom=True, labeltop=False, labelleft=True,
                    labelright=False, labelsize=ax_label_font)
+
     return ax
+
+def legend(losses, algorithms, figure, **kwargs):
+    """Creates a legend with the different line style and colors"""
+    # add dummy plots for the different styles
+    from matplotlib.lines import Line2D
+
+    # create legend elements
+    empty_legend = Line2D([None], [None], marker=".", visible=False)
+    padding = len(algorithms) - len(losses)
+    a_padding = max(-padding,0)
+    l_padding = max(padding, 0)
+
+    # add legend elements with sufficient padding
+    legend_elements = \
+            [empty_legend]*(l_padding//2) + \
+            [Line2D([None], [None], linestyle=STYLES[loss], color="k") for loss in losses] + \
+            [empty_legend]*(l_padding//2 + l_padding%2) + \
+            [empty_legend]*(a_padding//2) + \
+            [Line2D([None], [None], linestyle="solid", color=COLORS[algorithm]) for algorithm in algorithms] + \
+            [empty_legend]*(a_padding//2 + + a_padding%2)
+
+    labels = \
+            [""] *(l_padding//2) + \
+            [NAMES[loss] for loss in losses] + \
+            [""]*(l_padding//2 + l_padding%2) + \
+            [""] *(a_padding//2) + \
+            [NAMES[algorithm] for algorithm in algorithms] + \
+            [""]*(a_padding//2 + + a_padding%2)
+
+    # re-order row-first to column-first
+    columns = max(len(algorithms), len(losses))
+
+    indexes = [i for j in range(columns) for i in (j, j+columns)]
+    legend_elements = [legend_elements[index] for index in indexes]
+    labels = [labels[index] for index in indexes]
+
+    figure.legend(handles=legend_elements, labels=labels, loc="lower center", ncol=columns, **kwargs)
+
 
 
 def get_histogram(array, unk_label=-1,

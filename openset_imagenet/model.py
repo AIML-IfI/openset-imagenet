@@ -52,7 +52,7 @@ class ResNet50(nn.Module):
 
 class ResNet50Proser(nn.Module):
     """Implements functionality for the PROSER approach into ResNet50"""
-    def __init__(self, dummy_count, fc_layer_dim=1000, resnet_base = None, loss_type=None):
+    def __init__(self, dummy_count, fc_layer_dim, resnet_base, loss_type):
         super(ResNet50Proser, self).__init__()
         self.dummy_count = dummy_count
         # add a dummy classifier for unknown classes
@@ -69,7 +69,7 @@ class ResNet50Proser(nn.Module):
         manifold mixup is performed after the third group of blocks (i.e. layer3). By following
         this approach, the manifold mixup is performed after the penultimate group/layer
         """
-       
+
         x = self.resnet_base.resnet_base.conv1(x)
         x = self.resnet_base.resnet_base.bn1(x)
         x = self.resnet_base.resnet_base.relu(x)
@@ -78,8 +78,8 @@ class ResNet50Proser(nn.Module):
         x = self.resnet_base.resnet_base.layer1(x)
         x = self.resnet_base.resnet_base.layer2(x)
         x = self.resnet_base.resnet_base.layer3(x)
-        
-        
+
+
         return x
 
     def last_blocks(self, x):
@@ -96,11 +96,15 @@ class ResNet50Proser(nn.Module):
         x = self.resnet_base.resnet_base.avgpool(x)
 
         x = torch.flatten(x, 1)
-        
+
         features = self.resnet_base.resnet_base.fc(x)
 
         # apply our standard output layer
         logits = self.resnet_base.logits(features)
+
+        if self.loss_type == "garbage":
+            # for garbage class, we remove the logit for the unknown class -- since we will add another one below
+            logits = logits[:,:-1]
 
         # apply our dummy layer, get only the maximum output
         dummy = torch.max(self.dummy_classifier(features), dim=1)[0]
@@ -165,7 +169,6 @@ def load_checkpoint(model, checkpoint, opt=None, scheduler=None):
     """
     file_path = pathlib.Path(checkpoint)
     if file_path.is_file():  # First check if file exists
-#        breakpoint()
         checkpoint = torch.load(file_path, map_location=vast.tools._device)
         key = list(checkpoint["model_state_dict"].keys())[0]
         # If module was saved as DistributedDataParallel then removes the world "module"

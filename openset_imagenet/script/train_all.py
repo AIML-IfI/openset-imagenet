@@ -43,7 +43,7 @@ def get_args():
     parser.add_argument(
       "--algorithms", "-a",
       nargs = "+",
-      choices = ('threshold', 'maxlogit', 'evm', 'openmax', 'proser'),
+      choices = ('threshold', 'evm', 'openmax', 'proser'),
       default = ('threshold', 'evm', 'openmax', 'proser')
     )
     parser.add_argument(

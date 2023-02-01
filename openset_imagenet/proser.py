@@ -18,7 +18,7 @@ from .dataset import ImagenetDataset
 from .model import ResNet50, ResNet50Proser
 from .losses import AverageMeter, EarlyStopping, EntropicOpensetLoss
 import tqdm
-from .train import set_seeds, save_checkpoint, load_checkpoint
+from .model import set_seeds, save_checkpoint, load_checkpoint
 
 
 
@@ -41,11 +41,11 @@ def train_proser(model, data_loader, optimizer, loss_fn, trackers, cfg):
     for metric in trackers.values():
         metric.reset()
 
+    mixed_class_label = data_loader.dataset.label_count
+
     # training loop
     if not cfg.parallel:
         data_loader = tqdm.tqdm(data_loader)
-
-    mixed_class_label = model.resnet_base.number_of_classes
 
     #print('in the train function, class label count: ', mixed_class_label  )
 
@@ -125,11 +125,10 @@ def train_proser(model, data_loader, optimizer, loss_fn, trackers, cfg):
         trackers["j2"].update(loss2.item(), batch_len)
         trackers["j3"].update(loss3.item(), batch_len)
 
-
-
         # Backward pass
         j.backward()
         optimizer.step()
+
 
 def compute_bias(model, data_loader):
     """Bias computation to tune the dummy (background class) logit magnitude"""
@@ -147,13 +146,12 @@ def compute_bias(model, data_loader):
 
 
 # We will use our own default validation process, instead of taking PROSER's approach
-def validate_proser(model, data_loader, loss_fn, n_classes, trackers, cfg):
+def validate_proser(model, data_loader, loss_fn, trackers, cfg):
     """ Validation loop.
     Args:
         model (torch.model): Model
         data_loader (torch dataloader): DataLoader
         loss_fn: Loss function
-        n_classes(int): Total number of classes
         trackers(dict): Dictionary of trackers
         cfg: General configuration structure
     """
@@ -161,16 +159,14 @@ def validate_proser(model, data_loader, loss_fn, n_classes, trackers, cfg):
     for metric in trackers.values():
         metric.reset()
 
-    #HB introduced if statement for garbage-initialized network
-    if cfg.loss.type == "garbage":
-        min_unk_score = 0.
-        unknown_class = n_classes - 1
-        last_valid_class = -1
-    else:
-        min_unk_score = 1. / n_classes
-        unknown_class = -1
-        last_valid_class = None
+    # since we are at the validation dataset, we have C+1 classes.
+    # Hence, out model is supposed to have C scores, plus the dummy score, which we use for evaluation
+    n_classes = data_loader.dataset.label_count
 
+    # for PROSER, we always have one additional output
+    min_unk_score = 0.
+    unknown_class = n_classes - 1
+    last_valid_class = -1
 
     model.eval()
     with torch.no_grad():
@@ -185,7 +181,8 @@ def validate_proser(model, data_loader, loss_fn, n_classes, trackers, cfg):
             logits, dummy, features = model(images)
 
             # compute probabilities for all classes (excluding unknown)
-            scores = torch.nn.functional.softmax(logits, dim=1)
+            mixed_logits = torch.cat((logits, dummy[:,None]), dim=1)
+            scores = torch.nn.functional.softmax(mixed_logits, dim=1)
 
             # store all scores and all targets
             start_ix = i * cfg.batch_size
@@ -203,27 +200,31 @@ def validate_proser(model, data_loader, loss_fn, n_classes, trackers, cfg):
         if neg_count:
             trackers["conf_unk"].update(neg_conf, neg_count)
 
-def get_arrays(model, loader):
+
+def get_arrays(model, loader, pretty=False):
     """ Extract deep features, logits and targets for all dataset. Returns numpy arrays
 
     Args:
         model (torch model): Model.
         loader (torch dataloader): Data loader.
     """
+
+    n_classes = loader.dataset.label_count - (2 if -2 in loader.dataset.unique_classes else 1)
     model.eval()
     with torch.no_grad():
         data_len = len(loader.dataset)         # dataset length
-        logits_dim = model.resnet_base.logits.out_features  # logits output classes
         features_dim = model.resnet_base.logits.in_features # features dimensionality
         #print("logits dim: ", logits_dim, "feature dim:", features_dim)
 
         all_targets = torch.empty(data_len, device="cpu")  # store all targets
-        all_logits = torch.empty((data_len, logits_dim), device="cpu")   # store all logits
+        all_logits = torch.empty((data_len, n_classes), device="cpu")   # store all logits
         all_feat = torch.empty((data_len, features_dim), device="cpu")   # store all features
-        all_scores = torch.empty((data_len, logits_dim), device="cpu")
+        all_scores = torch.empty((data_len, n_classes), device="cpu")
 
         index = 0
-        for images, labels in tqdm.tqdm(loader):
+        if pretty:
+            loader = tqdm.tqdm(loader)
+        for images, labels in loader:
             curr_b_size = labels.shape[0]  # current batch size, very last batch has different value
             images = device(images)
             labels = device(labels)
@@ -243,6 +244,7 @@ def get_arrays(model, loader):
             all_logits.numpy(),
             all_feat.numpy(),
             all_scores.numpy())
+
 
 def worker(cfg):
     """ Main worker creates all required instances, trains and validates the model.
@@ -292,15 +294,10 @@ def worker(cfg):
             transform=val_tr
         )
 
-        # remove the negative label from PROSER training set, not from val set!
-        #HB things might be different for garbage
-        if cfg.loss.type == "garbage":
-            # Only change the unknown label of the training dataset
-            train_ds.replace_negative_label()
-            val_ds.replace_negative_label()
-
-        else:
-            train_ds.remove_negative_label()
+        # remove the negative label from PROSER training set
+        train_ds.remove_negative_label()
+        # for the val set, we change them to be in class C+1
+        val_ds.replace_negative_label()
 
     else:
         raise FileNotFoundError("train/validation file does not exist")
@@ -337,8 +334,7 @@ def worker(cfg):
 
     # set loss
     # number of classes when training with extra garbage class for unknowns, or when unknowns are removed
-    n_classes = train_ds.label_count
-
+    n_classes = train_ds.label_count + (1 if cfg.loss.type == "garbage" else 0)
 
     loss = torch.nn.CrossEntropyLoss(ignore_index=-1)
 
@@ -349,9 +345,9 @@ def worker(cfg):
         logit_bias=False
     )
     model = ResNet50Proser(
-        resnet_base = base,
         dummy_count = cfg.algorithm.dummy_count,
         fc_layer_dim=n_classes,
+        resnet_base = base,
         loss_type=cfg.loss.type
     )
 
@@ -392,15 +388,13 @@ def worker(cfg):
             scheduler = None
         )
 
-        print(f"Loaded {cfg.model_path.format(cfg.output_directory, cfg.loss.type, 'threshold', 'curr')} and taking model from epoch {start_epoch} that achieved best score {best_score}")
-
+        logger.info(f"Loaded {cfg.model_path.format(cfg.output_directory, cfg.loss.type, 'threshold', 'curr')} and taking model from epoch {start_epoch} that achieved best score {best_score}")
 
     # Print info to console and setup summary writer
-
-    # Info on console
     logger.info("============ Data ============")
     logger.info(f"train_len:{len(train_ds)}, labels:{train_ds.label_count}")
     logger.info(f"val_len:{len(val_ds)}, labels:{val_ds.label_count}")
+    logger.info(f"dummy_count: {cfg.algorithm.dummy_count}")
     logger.info("========== Training ==========")
     logger.info(f"Initial epoch: {START_EPOCH}")
     logger.info(f"Last epoch: {cfg.epochs}")
@@ -432,7 +426,6 @@ def worker(cfg):
             model=model,
             data_loader=val_loader,
             loss_fn=loss,
-            n_classes=n_classes,
             trackers=v_metrics,
             cfg=cfg)
 

@@ -33,6 +33,13 @@ optimized: # the parameter settings that provide optimal values on the val set
       entropic: {tailsize: 1000, distance_multiplier: 0.7}
       garbage: {tailsize: 100, distance_multiplier: 0.9}
 
+    # To be corrected
+    p3:
+      softmax: {tailsize: 1000, distance_multiplier: 0.3}
+      entropic: {tailsize: 1000, distance_multiplier: 0.7}
+      garbage: {tailsize: 100, distance_multiplier: 0.9}
+
+
   openmax:
     output_model_path: "{}/{}_{}_{}_{}.pkl" # directory/loss.type_alg.type_key_distance_metric.pth
     distance_metric: cosine
@@ -48,17 +55,28 @@ optimized: # the parameter settings that provide optimal values on the val set
       entropic: {tailsize: 250, distance_multiplier: 2.0, alpha: 5}
       garbage: {tailsize: 750, distance_multiplier: 1.5, alpha: 3}
 
+    # To be corrected
+    p3:
+      softmax: {tailsize: 750, distance_multiplier: 1.7, alpha: 5}
+      entropic: {tailsize: 250, distance_multiplier: 2.0, alpha: 5}
+      garbage: {tailsize: 750, distance_multiplier: 1.5, alpha: 3}
+
+
   proser:
     output_model_path: "{}/{}_{}_{}_{}_{}.pth" # directory/loss.type_alg.type_epoch_dummycount_curr.pth
 
     p1:
-      softmax: {epochs: 20, dummy_count: 2}
-      entropic: {epochs: 20, dummy_count: 2}
-      garbage: {epochs: 20, dummy_count: 2}
+      softmax: {epochs: 20, dummy_count: 1}
+      entropic: {epochs: 20, dummy_count: 1}
+      garbage: {epochs: 20, dummy_count: 1}
 
     p2:
-      softmax: {epochs: 20, dummy_count: 2}
-      entropic: {epochs: 20, dummy_count: 2}
-      garbage: {epochs: 20, dummy_count: 2}
+      softmax: {epochs: 20, dummy_count: 1}
+      entropic: {epochs: 20, dummy_count: 1}
+      garbage: {epochs: 20, dummy_count: 1}
 
-    # To be continued
+    # To be corrected
+    p3:
+      softmax: {epochs: 20, dummy_count: 1}
+      entropic: {epochs: 20, dummy_count: 1}
+      garbage: {epochs: 20, dummy_count: 1}

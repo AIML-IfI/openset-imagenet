@@ -15,89 +15,9 @@ import vast
 from loguru import logger
 from .metrics import confidence, auc_score_binary, auc_score_multiclass
 from .dataset import ImagenetDataset
-from .model import ResNet50
+from .model import ResNet50, load_checkpoint, save_checkpoint, set_seeds
 from .losses import AverageMeter, EarlyStopping, EntropicOpensetLoss
 import tqdm
-
-
-def set_seeds(seed):
-    """ Sets the seed for different sources of randomness.
-
-    Args:
-        seed(int): Integer
-    """
-    torch.manual_seed(seed)
-    random.seed(seed)
-    numpy.random.seed(seed)
-    # torch.backends.cudnn.deterministic = True
-    # torch.backends.cudnn.benchmark = Falsegg
-
-
-def save_checkpoint(f_name, model, epoch, opt, best_score_, scheduler=None):
-    """ Saves a training checkpoint.
-
-    Args:
-        f_name(str): File name.
-        model(torch module): Pytorch model.
-        epoch(int): Current epoch.
-        opt(torch optimizer): Current optimizer.
-        best_score_(float): Current best score.
-        scheduler(torch lr_scheduler): Pytorch scheduler.
-    """
-    # If model is DistributedDataParallel extracts the module.
-    if isinstance(model, DistributedDataParallel):
-        state = model.module.state_dict()
-    else:
-        state = model.state_dict()
-
-    data = {"epoch": epoch + 1,
-            "model_state_dict": state,
-            "opt_state_dict": opt.state_dict(),
-            "best_score": best_score_}
-    if scheduler is not None:
-        data["scheduler"] = scheduler.state_dict()
-    torch.save(data, f_name)
-
-
-def load_checkpoint(model, checkpoint, opt=None, scheduler=None):
-    """ Loads a checkpoint, if the model was saved using DistributedDataParallel, removes the word
-    'module' from the state_dictionary keys to load it in a single device. If fine-tuning model then
-    optimizer should be none to start from clean optimizer parameters.
-
-    Args:
-        model (torch nn.module): Requires a model to load the state dictionary.
-        checkpoint (Path): File path.
-        opt (torch optimizer): An optimizer to load the state dictionary. Defaults to None.
-        device (str): Device to load the checkpoint. Defaults to 'cpu'.
-        scheduler (torch lr_scheduler): Learning rate scheduler. Defaults to None.
-    """
-    file_path = pathlib.Path(checkpoint)
-    if file_path.is_file():  # First check if file exists
-#        breakpoint()
-        checkpoint = torch.load(file_path, map_location=vast.tools._device)
-        key = list(checkpoint["model_state_dict"].keys())[0]
-        # If module was saved as DistributedDataParallel then removes the world "module"
-        # from dictionary keys
-        if key[:6] == "module":
-            new_state_dict = OrderedDict()
-            for k_i, v_i in checkpoint["model_state_dict"].items():
-                key = k_i[7:]  # remove "module"
-                new_state_dict[key] = v_i
-            model.load_state_dict(new_state_dict)
-        else:
-            model.load_state_dict(checkpoint["model_state_dict"])
-
-        if opt is not None:  # Load optimizer state
-            opt.load_state_dict(checkpoint["opt_state_dict"])
-
-        if scheduler is not None:  # Load scheduler state
-            scheduler.load_state_dict(checkpoint["scheduler"])
-
-        start_epoch = checkpoint["epoch"]
-        best_score = checkpoint["best_score"]
-        return start_epoch, best_score
-    else:
-        raise Exception(f"Checkpoint file '{checkpoint}' not found")
 
 
 def train(model, data_loader, optimizer, loss_fn, trackers, cfg):
@@ -195,7 +115,7 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
             trackers["conf_unk"].update(neg_conf, neg_count)
 
 
-def get_arrays(model, loader, garbage):
+def get_arrays(model, loader, garbage, pretty=False):
     """ Extract deep features, logits and targets for all dataset. Returns numpy arrays
 
     Args:
@@ -210,13 +130,14 @@ def get_arrays(model, loader, garbage):
         if garbage:
             logits_dim -= 1
         features_dim = model.logits.in_features  # features dimensionality
-        print("logits dim: ", logits_dim, "feature dim:", features_dim)
         all_targets = torch.empty(data_len, device="cpu")  # store all targets
         all_logits = torch.empty((data_len, logits_dim), device="cpu")   # store all logits
         all_feat = torch.empty((data_len, features_dim), device="cpu")   # store all features
         all_scores = torch.empty((data_len, logits_dim), device="cpu")
 
         index = 0
+        if pretty:
+            loader = tqdm.tqdm(loader)
         for images, labels in loader:
             curr_b_size = labels.shape[0]  # current batch size, very last batch has different value
             images = device(images)
