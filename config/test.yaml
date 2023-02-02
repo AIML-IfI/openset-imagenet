@@ -24,20 +24,19 @@ optimized: # the parameter settings that provide optimal values on the val set
     chunk_size: 100  # Why do we need this here? The model should be independent of the chunk size
 
     p1:
-      softmax: {tailsize: 1000, distance_multiplier: 0.3}
-      entropic: {tailsize: 1000, distance_multiplier: 0.7}
-      garbage: {tailsize: 100, distance_multiplier: 0.9}
+      softmax: {tailsize: 1000, distance_multiplier: 0.4}
+      entropic: {tailsize: 1000, distance_multiplier: 0.2}
+      garbage: {tailsize: 75, distance_multiplier: 0.7}
 
     p2:
-      softmax: {tailsize: 1000, distance_multiplier: 0.3}
-      entropic: {tailsize: 1000, distance_multiplier: 0.7}
-      garbage: {tailsize: 100, distance_multiplier: 0.9}
+      softmax: {tailsize: 300, distance_multiplier: 0.3}
+      entropic: {tailsize: 150, distance_multiplier: 0.2}
+      garbage: {tailsize: 1000, distance_multiplier: 0.2}
 
-    # To be corrected
     p3:
-      softmax: {tailsize: 1000, distance_multiplier: 0.3}
-      entropic: {tailsize: 1000, distance_multiplier: 0.7}
-      garbage: {tailsize: 100, distance_multiplier: 0.9}
+      softmax: {tailsize: 100, distance_multiplier: 0.5}
+      entropic: {tailsize: 1000, distance_multiplier: 0.2}
+      garbage: {tailsize: 500, distance_multiplier: 0.5}
 
 
   openmax:
@@ -46,20 +45,19 @@ optimized: # the parameter settings that provide optimal values on the val set
     translateAmount: 1
 
     p1:
-      softmax: {tailsize: 250, distance_multiplier: 1.7, alpha: 3}
-      entropic: {tailsize: 100, distance_multiplier: 1.7, alpha: 3}
-      garbage: {tailsize: 1000, distance_multiplier: 1.7, alpha: 5}
+      softmax: {tailsize: 1000, distance_multiplier: 2.0, alpha: 10}
+      entropic: {tailsize: 500, distance_multiplier: 2.0, alpha: 10}
+      garbage: {tailsize: 1000, distance_multiplier: 1.5, alpha: 5}
 
     p2:
-      softmax: {tailsize: 750, distance_multiplier: 1.7, alpha: 5}
-      entropic: {tailsize: 250, distance_multiplier: 2.0, alpha: 5}
-      garbage: {tailsize: 750, distance_multiplier: 1.5, alpha: 3}
+      softmax: {tailsize: 1000, distance_multiplier: 2.3, alpha: 10}
+      entropic: {tailsize: 500, distance_multiplier: 2.0, alpha: 3}
+      garbage: {tailsize: 750, distance_multiplier: 1.7, alpha: 5}
 
-    # To be corrected
     p3:
-      softmax: {tailsize: 750, distance_multiplier: 1.7, alpha: 5}
-      entropic: {tailsize: 250, distance_multiplier: 2.0, alpha: 5}
-      garbage: {tailsize: 750, distance_multiplier: 1.5, alpha: 3}
+      softmax: {tailsize: 750, distance_multiplier: 2.3, alpha: 5}
+      entropic: {tailsize: 250, distance_multiplier: 2.0, alpha: 10}
+      garbage: {tailsize: 1000, distance_multiplier: 2.3, alpha: 2}
 
 
   proser:

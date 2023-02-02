@@ -215,7 +215,7 @@ def process_model(protocol, loss, algorithms, cfg, suffix, gpu, force):
                 # extract features
                 logger.info(f"Extracting base scores for protocol {protocol}, {loss}")
                 gt, logits, features, base_scores = extract(base_model, test_loader, "threshold", loss)
-                write_scores(gt, logits, features, scores, loss, "threshold", suffix, output_directory)
+                write_scores(gt, logits, features, base_scores, loss, "threshold", suffix, output_directory)
                 # remove model from GPU memory
                 del base_model
         else:

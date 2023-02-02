@@ -69,9 +69,14 @@ def command_line_options(command_line_arguments=None):
         help = "Select the GPU index that you have. You can specify an index or not. If not, 0 is assumed. If not selected, we will train on CPU only (not recommended)"
     )
     parser.add_argument(
-        "--latex-files", "-w",
-        default = "results/Paramters_{}_{}_{}.tex",
+        "--latex-files",
+        default = "results/Parameters_{}_{}_{}.tex",
         help = "Set the output file where to write the parameter tables into; the value will get formatted with protocol, loss and algorithm"
+    )
+    parser.add_argument(
+        "--summary-file",
+        default = "results/Parameter_summary.tex",
+        help = "Select the file where to write the final summary table into"
     )
 
     args = parser.parse_args(command_line_arguments)
@@ -103,7 +108,6 @@ def dataset(cfg, protocol):
     return val_dataset, val_loader
 
 from .evaluate_algs import load_model, extract
-
 
 
 def post_process(gt, logits, features, scores, cfg, thresholds, protocol, loss, algorithm, output_directory, gpu):
@@ -185,7 +189,7 @@ HEADERS = {
     "evm": "$\\lambda$ & $\\kappa$ & $\\omega$ & ",
     "openmax": "$\\lambda$ & $\\kappa$ & $\\alpha$ & ",
 }
-def write_table(results, thresholds, latex_file, algorithm):
+def result_table(results, thresholds, latex_file, algorithm):
 
     # append the sum to the results
     max_value = 0
@@ -210,8 +214,30 @@ def write_table(results, thresholds, latex_file, algorithm):
                 [("\\bf " if values[-1] == max_value else "") + f"{v:.4f}" if v is not None else "" for v in values]
             ))
             f.write(" \\\\\\hline\n")
-    return max_param
+    return max_param, max_value
 
+def summary_table(maxima, summary_file):
+    old_algorithm = None
+    old_protocol = None
+    with open(summary_file, "w") as f:
+        for algorithm, protocol, loss in maxima:
+            if algorithm != old_algorithm:
+                if old_algorithm is not None:
+                    f.write("\\hline\n")
+                # write header
+                f.write(HEADERS[algorithm])
+                # write FPR thresholds
+                f.write("$\\Sigma$ \\\\\\hline\\hline\n")
+                old_algorithm = algorithm
+
+            keys, value = maxima[(algorithm,protocol,loss)]
+            f.write(" & ".join([str(k) for k in keys]))
+            f.write(f" & {value:.4f} \\\\\n")
+            if old_protocol != protocol:
+                f.write("\\hline\n")
+                old_protocol = protocol
+        f.write("\\hline\n")
+    logger.info(f"Wrote Summary file {summary_file}")
 
 def main(command_line_arguments=None):
 
@@ -231,10 +257,11 @@ def main(command_line_arguments=None):
               result = process_model(protocol, loss, algorithm, cfg, args.fpr_thresholds, suffix, args.gpu)
               if result is not None:
                 latex_file = args.latex_files.format(protocol, loss, algorithm)
-                maximum = write_table(result, args.fpr_thresholds, latex_file, algorithm)
+                maximum = result_table(result, args.fpr_thresholds, latex_file, algorithm)
                 logger.info(f"Wrote table '{latex_file}'")
                 maxima[(algorithm, protocol, loss)] = maximum
 
+    summary_table(maxima, args.summary_file)
     # Write best results to console
     print("BEST RESULTS:")
     for algorithm in args.algorithms:
@@ -242,7 +269,9 @@ def main(command_line_arguments=None):
         for loss in args.losses:
           print(f"{algorithm} in protocol {protocol} for {loss}: ", end="")
           h = HEADERS[algorithm].split(" & ")[:-1]
-          m = maxima[(algorithm, protocol, loss)]
-          print(", ".join([f"{h[i]}: {m[i]}" for i in range(len(h))]))
+          m = maxima[(algorithm, protocol, loss)][0]
+          v = maxima[(algorithm, protocol, loss)][1]
+          print(", ".join([f"{h[i]}: {m[i]}" for i in range(len(h))]), end="")
+          print(f", value: {v}")
         print()
       print()
