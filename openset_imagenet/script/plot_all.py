@@ -165,6 +165,7 @@ def plot_score_distributions(args, scores, ground_truths, pdf):
     P = len(args.protocols)
     L = len(args.losses)
     algorithms = [a for a in args.algorithms if a != "maxlogits"]
+#    algorithms = args.algorithms
     A = len(algorithms)
 
     # Manual colors
