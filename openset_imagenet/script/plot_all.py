@@ -47,9 +47,9 @@ def command_line_options(command_line_arguments=None):
     )
     parser.add_argument(
         "--algorithms", "-a",
-        choices = ["threshold", "openmax", "proser", "evm", "maxlogits"],
+        choices = ["threshold", "openmax", "evm", "proser", "maxlogits"],
         nargs = "+",
-        default = ["threshold", "openmax", "proser", "evm", "maxlogits"],
+        default = ["threshold", "openmax", "evm", "proser", "maxlogits"],
         help = "Which algorithm to include into the plot. Specific parameters should be in the yaml file"
     )
     parser.add_argument(
@@ -69,38 +69,33 @@ def command_line_options(command_line_arguments=None):
         help = "If set, score files will be recomputed even if they already exist"
     )
     parser.add_argument(
-      "--linear",
-      action="store_true",
-      help = "If set, OSCR curves will be plot with linear FPR axis"
+        "--plots",
+        help = "Select where to write the plots into"
     )
     parser.add_argument(
-      "--sort-by-loss", "-s",
-      action = "store_true",
-      help = "If selected, the plots will compare across protocols and not across algorithms"
+        "--tables",
+        default = "results/Results_Protocol{}_{}.tex",
+        help = "Select the files where to write the CCR table into"
     )
     parser.add_argument(
-      "--plots",
-      help = "Select where to write the plots into"
-    )
-    parser.add_argument(
-      "--table",
-      help = "Select the file where to write the Confidences (gamma) and CCR into"
+        "--fpr-thresholds", "-t",
+        type = float,
+        nargs="+",
+        default = [1e-3, 1e-2, 1e-1, 1.],
+        help = "Select the thresholds for which the CCR validation metric should be tabled"
     )
 
     args = parser.parse_args(command_line_arguments)
 
-    suffix = 'linear' if args.linear else 'best' if args.use_best else 'last'
-    if args.sort_by_loss:
-        suffix += "_by_loss"
-    args.plots = args.plots or f"results/Results_{suffix}.pdf"
-    args.table = args.table or f"results/Results_{suffix}.tex"
+    args.plots = args.plots or f"results/Results_{'best' if args.use_best else 'last'}.pdf"
+#    args.table = args.table or f"results/Results_{suffix}.tex"
     return args
 
 
 def load_scores(args, cfg):
     # collect all result files;
     suffix = "best" if args.use_best else "curr"
-    # we sort them as follows: protocol, loss, algorithm (by default) or loss, protocol, algorithm (when sort by loss)
+    # we sort them as follows: protocol, loss, algorithm
     scores = defaultdict(lambda: defaultdict(dict))
     ground_truths = {}
 #    epoch = {p:{} for p in args.protocols}
@@ -116,13 +111,10 @@ def load_scores(args, cfg):
                     # remember files
                     results = numpy.load(score_file)
 
-                    if args.sort_by_loss:
-                        scores[loss][protocol][algorithm] = results[scr]
-                    else:
-                        scores[protocol][loss][algorithm] = results[scr]
+                    scores[protocol][loss][algorithm] = results[scr]
 
                     if protocol not in ground_truths:
-                        ground_truths[protocol] = results["gt"]
+                        ground_truths[protocol] = results["gt"].astype(int)
                     else:
                         assert numpy.all(results["gt"] == ground_truths[protocol])
 
@@ -141,12 +133,11 @@ def plot_OSCR(args, scores, ground_truths):
     axs = gs.subplots(sharex=True, sharey=True)
     axs = axs.flat
     font = 15
-    scale = 'linear' if args.linear else 'semilog'
 
     for index, protocol in enumerate(args.protocols):
-        openset_imagenet.util.plot_oscr(arrays=scores[protocol], gt=ground_truths[protocol], scale=scale, title=f'$P_{protocol}$ Negative',
+        openset_imagenet.util.plot_oscr(arrays=scores[protocol], gt=ground_truths[protocol], scale="semilog", title=f'$P_{protocol}$ Negative',
                     ax_label_font=font, ax=axs[2*index], unk_label=-1,)
-        openset_imagenet.util.plot_oscr(arrays=scores[protocol], gt=ground_truths[protocol], scale=scale, title=f'$P_{protocol}$ Unknown',
+        openset_imagenet.util.plot_oscr(arrays=scores[protocol], gt=ground_truths[protocol], scale="semilog", title=f'$P_{protocol}$ Unknown',
                     ax_label_font=font, ax=axs[2*index+1], unk_label=-2,)
     # Axis properties
     for ax in axs:
@@ -159,208 +150,125 @@ def plot_OSCR(args, scores, ground_truths):
     fig.text(0.04, 0.5, 'CCR', va='center', rotation='vertical', fontsize=font)
 
     # add legend
-    openset_imagenet.util.legend(
+    openset_imagenet.util.oscr_legend(
         args.losses, args.algorithms, fig,
         bbox_to_anchor=(0.5,-0.03), handletextpad=0.6, columnspacing=1.5,
         title="How to Read: Line Style -> Loss; Color -> Algorithm"
     )
 
 
-def plot_confidences(args, cfg):
-
-  # locate event paths
-  event_files = {p:collections.defaultdict(list) for p in args.protocols}
-  for protocol in args.protocols:
-    protocol_dir = pathlib.Path(cfg.output_directory)/f"Protocol_{protocol}"
-    if os.path.exists(protocol_dir):
-      files = sorted(os.listdir(protocol_dir))
-      # get the event files
-      for f in files:
-        if f.startswith("event"):
-          loss = f.split("-")[1].split(".")[0]
-          # set (overwrite) event file
-          event_files[protocol][loss].append(protocol_dir / f)
-
-  P = len(args.protocols)
-  linewidth = 1.5
-  legend_pos = "lower right"
-  font_size = 15
-  color_palette = cm.get_cmap('tab10', 10).colors
-  fig = pyplot.figure(figsize=(12,3*P+1))
-  gs = fig.add_gridspec(P, 2, hspace=0.2, wspace=0.1)
-  axs = gs.subplots(sharex=True, sharey=True)
-  axs = axs.flat
-
-
-  def load_accumulators(files):
-    known_data, unknown_data = {}, {}
-    for event_file in files:
-      try:
-        event_acc = EventAccumulator(str(event_file), size_guidance={'scalars': 0})
-        event_acc.Reload()
-        for event in event_acc.Scalars('val/conf_kn'):
-          known_data[event[1]+1] = event[2]
-        for event in event_acc.Scalars('val/conf_unk'):
-          unknown_data[event[1]+1] = event[2]
-      except KeyError: pass
-
-    # re-structure
-    return zip(*sorted(known_data.items())), zip(*sorted(unknown_data.items()))
-
-  max_len = 0
-  min_len = 100
-  for index, protocol in enumerate(args.protocols):
-      ax_kn = axs[2 * index]
-      ax_unk = axs[2 * index + 1]
-      for c, loss in enumerate(args.loss_functions):
-        step_kn, val_kn, step_unk, val_unk = [[]]*4
-        if loss in event_files[protocol]:
-          # Read data from the tensorboard object
-          (step_kn, val_kn), (step_unk, val_unk) = load_accumulators(event_files[protocol][loss])
-        else:
-          step_kn, val_kn, step_unk, val_unk = [[]]*4
-
-        # Plot known confidence
-        ax_kn.plot(step_kn, val_kn, linewidth=linewidth, label = loss + ' kn', color=color_palette[c])
-        # Plot unknown confidence
-        ax_unk.plot(step_unk, val_unk, linewidth=linewidth, label = loss + ' unk', color=color_palette[c])
-        if len(step_kn):
-          max_len = max(max_len, max(step_kn))
-          min_len = min(min_len, min(step_kn))
-      # set titles
-      ax_kn.set_title(f"$P_{protocol}$ Known", fontsize=font_size)
-      ax_unk.set_title(f"$P_{protocol}$ Negative", fontsize=font_size)
-
-  # Manual legend
-  axs[-2].legend(args.labels, frameon=False,
-                fontsize=font_size - 1, bbox_to_anchor=(0.8, -0.1), ncol=3, handletextpad=0.5, columnspacing=1)
-
-  for ax in axs:
-      # set the tick parameters for the current axis handler
-      ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
-      ax.tick_params(labelbottom=True, labeltop=False, labelleft=True, labelright=False, labelsize=font_size)
-      ax.set_xlim(min_len, max_len)
-      ax.set_ylim(0, 1)
-      # Thicklocator parameters
-      ax.yaxis.set_major_locator(MaxNLocator(5, prune='lower'))
-      ax.xaxis.set_major_locator(MaxNLocator(6))
-      ax.label_outer()
-  # X label
-  fig.text(0.5, 0.05, 'Epoch', ha='center', fontsize=font_size)
-
-
-
-def plot_softmax(args, scores):
+from openset_imagenet.util import NAMES
+def plot_score_distributions(args, scores, ground_truths, pdf):
 
     font_size = 15
     bins = 30
-    unk_label = -2
     P = len(args.protocols)
-    N = len(args.loss_functions)
+    L = len(args.losses)
+    algorithms = [a for a in args.algorithms if a != "maxlogits"]
+    A = len(algorithms)
 
-    fig = pyplot.figure(figsize=(3*P+1, 2*N))
-    gs = fig.add_gridspec(N, P, hspace=0.2, wspace=0.08)
-    axs = gs.subplots(sharex=True, sharey=False)
-    axs = axs.flat
     # Manual colors
-    edge_unk = colors.to_rgba('indianred', 1)
-    fill_unk = colors.to_rgba('firebrick', 0.04)
-    edge_kn = colors.to_rgba('tab:blue', 1)
-    fill_kn = colors.to_rgba('tab:blue', 0.04)
+    edge_unknown = colors.to_rgba('indianred', 1)
+    fill_unknown = colors.to_rgba('firebrick', 0.04)
+    edge_known = colors.to_rgba('tab:blue', 1)
+    fill_known = colors.to_rgba('tab:blue', 0.04)
+    edge_negative = colors.to_rgba('tab:green', 1)
+    fill_negative = colors.to_rgba('tab:green', 0.04)
 
-    index = 0
+    for loss in args.losses:
+
+        fig = pyplot.figure(figsize=(3*A+1, 2*P))
+        gs = fig.add_gridspec(P, A, hspace=0.2, wspace=0.08)
+        axs = gs.subplots(sharex=True, sharey=False)
+
+        for p, protocol in enumerate(args.protocols):
+            max_a = (0, 0)
+
+            for a, algorithm in enumerate(algorithms):
+                # Calculate histogram
+                ax = axs[p,a]
+                if scores[protocol][loss][algorithm] is not None:
+                    histograms = openset_imagenet.util.get_histogram(
+                        scores[protocol][loss][algorithm],
+                        ground_truths[protocol],
+                        bins=bins
+                    )
+                    # Plot histograms
+                    ax.stairs(histograms["known"][0], histograms["known"][1], fill=True, color=fill_known, edgecolor=edge_known, linewidth=1)
+                    ax.stairs(histograms["unknown"][0], histograms["unknown"][1], fill=True, color=fill_unknown, edgecolor=edge_unknown, linewidth=1)
+                    ax.stairs(histograms["negative"][0], histograms["negative"][1], fill=True, color=fill_negative, edgecolor=edge_negative, linewidth=1)
+
+                ax.set_title(f"{NAMES[protocol]} {NAMES[algorithm]}")
+
+                # set tick locator
+                max_a = max(max_a, (max(numpy.max(h[0]) for h in histograms.values()), a))
+                ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
+                ax.tick_params(labelbottom=True, labeltop=False, labelleft=True, labelright=False, labelsize=font_size)
+                ax.yaxis.set_major_locator(MaxNLocator(4))
+                ax.label_outer()
+
+            # share axis of the maximum value
+            for a in range(A):
+                if a != max_a[1]:
+#                    axs[p,a].set_ylim([0, max_a[0]])
+                    axs[p,a].sharey(axs[p,max_a[1]])
+
+
+        # Manual legend
+        from matplotlib.lines import Line2D
+        legend_elements = [Line2D([None], [None], color=edge_known),
+                           Line2D([None], [None], color=edge_negative),
+                           Line2D([None], [None], color=edge_unknown)]
+        legend_labels = ["Known", "Negative", "Unknown"]
+        fig.legend(handles=legend_elements, labels=legend_labels, loc="lower center", ncol=3, bbox_to_anchor=(0.3,0.0))
+
+
+        # X label
+        fig.text(0.7, 0.01, f'{NAMES[loss]} Scores', ha='center', fontsize=font_size)
+
+        pdf.savefig(bbox_inches='tight', pad_inches = 0)
+
+
+from .parameter_selection import THRESHOLDS
+def ccr_table(args, scores, gt):
+
+    def nonemax(a,b):
+        b = numpy.array([v if v is not None else numpy.nan for v in b])
+        return numpy.where(numpy.logical_and(numpy.logical_not(numpy.isnan(b)), b >= a), b, a)
     for protocol in args.protocols:
-      for l, loss in enumerate(args.loss_functions):
-        # Calculate histogram
-        drop_bg = loss == "garbage"  #  Drop the background class
-        if scores[protocol][loss] is not None:
-          kn_hist, kn_edges, unk_hist, unk_edges = openset_imagenet.util.get_histogram(
-              scores[protocol][loss]["test"],
-              unk_label=unk_label,
-              metric='score',
-              bins=bins,
-              drop_bg=drop_bg
-          )
-        else:
-          kn_hist, kn_edges, unk_hist, unk_edges = [], [0], [], [0]
-        # Plot histograms
-        axs[index].stairs(kn_hist, kn_edges, fill=True, color=fill_kn, edgecolor=edge_kn, linewidth=1)
-        axs[index].stairs(unk_hist, unk_edges, fill=True, color=fill_unk, edgecolor=edge_unk, linewidth=1)
-
-        # axs[ix].set_yscale('log')
-        axs[index].set_title(f"$P_{{{protocol}}}$ {args.labels[l]}")
-        index += 1
-
-    # Share y axis of the histograms of the same protocol
-    for p in range(P):
-      for l in range(1,N):
-        axs[N*p+l-1].sharey(axs[N*p+l])
-
-    for ax in axs:
-        # set the tick parameters for the current axis handler
-        ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
-        ax.tick_params(labelbottom=True, labeltop=False, labelleft=True, labelright=False, labelsize=font_size)
-        ax.yaxis.set_major_locator(MaxNLocator(6))
-        ax.label_outer()
-
-    # Manual legend
-    axs[-2].legend(['Known', 'Unknown'],
-                  frameon=False,
-                  fontsize=font_size-1,
-                  bbox_to_anchor=(0.2, -0.08),
-                  ncol=2,
-                  handletextpad=0.3,
-                  columnspacing=1,
-                  markerscale=1)
-    # X label
-    fig.text(0.5, 0.02, 'Score', ha='center', fontsize=font_size)
+        latex_file = args.tables.format(protocol, 'best' if args.use_best else 'last')
+        print("Writing CCR tables for protocol", protocol, "to file", latex_file)
+        # compute all CCR values and store maximum values
+        results = collections.defaultdict(dict)
+        max_total = numpy.zeros(len(args.fpr_thresholds))
+        max_by_alg = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
+        max_by_loss = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
+        for algorithm in args.algorithms:
+            for loss in args.losses:
+                ccrs = openset_imagenet.util.ccr_at_fpr(gt[protocol], scores[protocol][loss][algorithm], args.fpr_thresholds, unk_label=-2)
+                results[algorithm][loss] = ccrs
+                max_total = nonemax(max_total, ccrs)
+                max_by_alg[algorithm] = nonemax(max_by_alg[algorithm], ccrs)
+                max_by_loss[loss] = nonemax(max_by_loss[loss], ccrs)
 
 
-
-def conf_and_ccr_table(args, scores, epochs):
-
-  def find_nearest(array, value):
-      """Get the closest element in array to value"""
-      array = numpy.asarray(array)
-      idx = (numpy.abs(array - value)).argmin()
-      return idx, array[idx]
-
-  query = [1e-3, 1e-2, 0.1,1.0]
-  unk_label = -2
-
-  with open(args.table, "w") as table:
-    for p, protocol in enumerate(args.protocols):
-      for l, loss in enumerate(args.loss_functions):
-        for which in ["test"]:
-          array = scores[protocol][loss][which]
-          gt = array['gt']
-          values = array['scores']
-
-          ccr_, fpr_ = openset_imagenet.util.calculate_oscr(gt, values, unk_label=unk_label)
-
-          # get confidences on test set
-          offset = 0 if loss == "garbage" else 1 / (numpy.max(gt)+1)
-          last_valid_class = -1 if loss == "garbage" else None
-          c = openset_imagenet.metrics.confidence(
-              torch.tensor(values),
-              torch.tensor(gt, dtype=torch.long),
-              offset = offset, unknown_class=-2, last_valid_class=last_valid_class
-          )
-
-
-          # write loss and confidences
-          table.write(f"$P_{protocol}$ - {args.labels[l]} & {epochs[protocol][loss][0]} & {c[0]:1.3f} & {c[2]:1.3f}")
-
-          for q in query:
-              idx, fpr = find_nearest(fpr_, q)
-              error = round(100*abs(fpr - q) / q, 1)
-              if error >= 10.0:  # If error greater than 10% then assume fpr value not in data
-                  table.write(" & ---")
-              else:
-                  table.write(f" & {ccr_[idx]:1.3f}")
-        table.write("\\\\\n")
-      if p < len(args.protocols)-1:
-        table.write("\\midrule\n")
+        with open(latex_file, "w") as f:
+            # write header
+            f.write("\\bf Algorithm & \\bf Loss & ")
+            f.write(" & ".join([THRESHOLDS[t] for t in args.fpr_thresholds]))
+            f.write("\\\\\\hline\\hline\n")
+            for algorithm in args.algorithms:
+                f.write(f"\\multirow{{{len(args.losses)}}}{{*}}{{{NAMES[algorithm]}}}")
+                for loss in args.losses:
+                    f.write(f" & {NAMES[loss]}")
+                    for i, v in enumerate(results[algorithm][loss]):
+                        if v is None: f.write(" &")
+                        elif v == max_total[i]: f.write(f" & \\textcolor{{blue}}{{\\bf {v:.4f}}}")
+                        elif v == max_by_alg[algorithm][i]: f.write(f" & \\it {v:.4f}")
+                        elif v == max_by_loss[loss][i]: f.write(f" & \\underline{{{v:.4f}}}")
+                        else: f.write(f" & {v:.4f}")
+                    f.write("\\\\\n")
+                f.write("\\hline\n")
 
 
 def main(command_line_arguments = None):
@@ -391,18 +299,14 @@ def main(command_line_arguments = None):
           print("Plotting confidence plots")
           plot_confidences(args)
           pdf.savefig(bbox_inches='tight', pad_inches = 0)
+        """
 
-        if not args.linear and not args.sort_by_loss:
-          # plot histograms
-          print("Plotting softmax histograms")
-          plot_softmax(args, scores)
-          pdf.savefig(bbox_inches='tight', pad_inches = 0)"""
+        # plot histograms
+        print("Plotting score distribution histograms")
+        plot_score_distributions(args, scores, ground_truths, pdf)
     finally:
         pdf.close()
 
-    """
     # create result table
-    if not args.linear and not args.sort_by_loss:
-        print("Creating Table")
-        print("Writing file", args.table)
-        conf_and_ccr_table(args, scores, epoch)"""
+    print("Creating CCR Tables")
+    ccr_table(args, scores, ground_truths)

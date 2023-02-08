@@ -6,12 +6,14 @@ import argparse
 import pathlib
 import numpy
 import sys, os
+import collections
 from vast.tools import set_device_gpu, set_device_cpu, device
 from torchvision import transforms as tf
 from torch.utils.data import DataLoader
 import openset_imagenet
 import pickle
 from openset_imagenet.openmax_evm import compute_adjust_probs, compute_probs, get_param_string
+from openset_imagenet.util import NAMES
 from loguru import logger
 import tqdm
 
@@ -22,9 +24,9 @@ def command_line_options(command_line_arguments=None):
     # directory parameters
     parser.add_argument(
         "--losses", "-l",
-        choices = ["entropic", "softmax", "garbage"],
+        choices = ["softmax", "garbage", "entropic"],
         nargs="+",
-        default = ["entropic", "softmax", "garbage"],
+        default = ["softmax", "garbage", "entropic"],
         help="Which loss functions to optimize on"
     )
     parser.add_argument(
@@ -32,7 +34,7 @@ def command_line_options(command_line_arguments=None):
         type = int,
         nargs = "+",
         choices = (1,2,3),
-        default = (2,1,3),
+        default = (1,2,3),
         help = "Which protocols to optimize on"
     )
     parser.add_argument(
@@ -75,7 +77,7 @@ def command_line_options(command_line_arguments=None):
     )
     parser.add_argument(
         "--summary-file",
-        default = "results/Parameter_summary.tex",
+        default = "results/Parameter_summary_{}.tex",
         help = "Select the file where to write the final summary table into"
     )
 
@@ -189,55 +191,63 @@ HEADERS = {
     "evm": "$\\lambda$ & $\\kappa$ & $\\omega$ & ",
     "openmax": "$\\lambda$ & $\\kappa$ & $\\alpha$ & ",
 }
-def result_table(results, thresholds, latex_file, algorithm):
+THRESHOLDS = {1e-4: "$10^{-4}$",
+              1e-3: "$10^{-3}$",
+              1e-2: "$10^{-2}$",
+              1e-1: "$10^{-1}$",
+              1: "$1$",
+}
+
+def result_table(results, thresholds, latex_file, algorithm, write_header=False):
 
     # append the sum to the results
-    max_value = 0
+    max_values = [0] * (len(thresholds)+1)
     max_param = None
     for param, values in results.items():
         total = sum(v for v in values if v is not None)
         values.append(total)
-        max_param = max_param if max_value > total else param
-        max_value = max(max_value, total)
+        max_param = max_param if max_values[-1] > total else param
+        for i, v in enumerate(values):
+            if v is not None and v > max_values[i]:
+                max_values[i] = v
 
     with open(latex_file, "w") as f:
         # write header
-        f.write(HEADERS[algorithm])
+        if write_header:
+            f.write(HEADERS[algorithm])
         # write FPR thresholds
-        f.write(" & ".join([f"{t:.1e}" for t in thresholds]))
+        f.write(" & ".join([THRESHOLDS[t] for t in thresholds]))
         f.write(" & $\\Sigma$ \\\\\\hline\\hline\n")
 
         # write data rows
         for keys, values in results.items():
             f.write(" & ".join(
-                [f"{k}" for k in keys] +
-                [("\\bf " if values[-1] == max_value else "") + f"{v:.4f}" if v is not None else "" for v in values]
+                ([f"{k}" for k in keys] if write_header else []) +
+                [("\\bf " if v == max_values[i] else "") + f"{v:.4f}" if v is not None else "" for i,v in enumerate(values)]
             ))
             f.write(" \\\\\\hline\n")
-    return max_param, max_value
+    return max_param, max_values[-1]
+
 
 def summary_table(maxima, summary_file):
-    old_algorithm = None
-    old_protocol = None
-    with open(summary_file, "w") as f:
-        for algorithm, protocol, loss in maxima:
-            if algorithm != old_algorithm:
-                if old_algorithm is not None:
-                    f.write("\\hline\n")
-                # write header
-                f.write(HEADERS[algorithm])
-                # write FPR thresholds
-                f.write("$\\Sigma$ \\\\\\hline\\hline\n")
-                old_algorithm = algorithm
-
-            keys, value = maxima[(algorithm,protocol,loss)]
-            f.write(" & ".join([str(k) for k in keys]))
-            f.write(f" & {value:.4f} \\\\\n")
-            if old_protocol != protocol:
+    for algorithm in maxima:
+        filepath = summary_file.format(algorithm)
+        with open(filepath, "w") as f:
+            # write header
+            f.write("\\bf Protocol & \\bf Loss & ")
+            f.write(HEADERS[algorithm])
+            f.write("$\\Sigma$ \\\\\\hline\\hline\n")
+            for protocol in maxima[algorithm]:
+                # write protocol
+                f.write(f"\\multirow{{{len(maxima[algorithm][protocol])}}}{{*}}{{{NAMES[protocol]}}}")
+                for loss, values in maxima[algorithm][protocol].items():
+                    f.write(f" & {NAMES[loss]} & ")
+                    keys, value = values
+                    f.write(" & ".join([str(k) for k in keys]))
+                    f.write(f" & {value:.4f} \\\\\n")
                 f.write("\\hline\n")
-                old_protocol = protocol
-        f.write("\\hline\n")
-    logger.info(f"Wrote Summary file {summary_file}")
+        logger.info(f"Wrote Summary file {filepath}")
+
 
 def main(command_line_arguments=None):
 
@@ -247,19 +257,19 @@ def main(command_line_arguments=None):
     msg_format = "{time:DD_MM_HH:mm} {name} {level}: {message}"
     logger.configure(handlers=[{"sink": sys.stderr, "level": "INFO", "format": msg_format}])
 
-    maxima = {}
+    maxima = collections.defaultdict(lambda:collections.defaultdict(dict))
 
     for algorithm in args.algorithms:
       # load configuration for this algorithm
       cfg = openset_imagenet.util.load_yaml(pathlib.Path(args.configuration_directory) / (algorithm + ".yaml"))
-      for protocol in args.protocols:
-          for loss in args.losses:
+      for loss in args.losses:
+          for protocol in args.protocols:
               result = process_model(protocol, loss, algorithm, cfg, args.fpr_thresholds, suffix, args.gpu)
               if result is not None:
-                latex_file = args.latex_files.format(protocol, loss, algorithm)
-                maximum = result_table(result, args.fpr_thresholds, latex_file, algorithm)
-                logger.info(f"Wrote table '{latex_file}'")
-                maxima[(algorithm, protocol, loss)] = maximum
+                  latex_file = args.latex_files.format(protocol, loss, algorithm)
+                  maximum = result_table(result, args.fpr_thresholds, latex_file, algorithm, write_header=loss==args.losses[0])
+                  logger.info(f"Wrote table '{latex_file}'")
+                  maxima[algorithm][protocol][loss] = maximum
 
     summary_table(maxima, args.summary_file)
     # Write best results to console
@@ -269,8 +279,7 @@ def main(command_line_arguments=None):
         for loss in args.losses:
           print(f"{algorithm} in protocol {protocol} for {loss}: ", end="")
           h = HEADERS[algorithm].split(" & ")[:-1]
-          m = maxima[(algorithm, protocol, loss)][0]
-          v = maxima[(algorithm, protocol, loss)][1]
+          m,v = maxima[algorithm][protocol][loss]
           print(", ".join([f"{h[i]}: {m[i]}" for i in range(len(h))]), end="")
           print(f", value: {v}")
         print()
