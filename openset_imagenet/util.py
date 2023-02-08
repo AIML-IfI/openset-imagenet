@@ -184,7 +184,10 @@ NAMES = {
     "garbage": "Garbage",
     "p1": "P_1",
     "p2": "P_2",
-    "p3": "P_3"
+    "p3": "P_3",
+    1: "$P_1$",
+    2: "$P_2$",
+    3: "$P_3$"
 }
 
 def plot_single_oscr(fpr, ccr, ax, loss, algorithm, scale):
@@ -250,7 +253,7 @@ def plot_oscr(arrays, gt, scale='linear', title=None, ax_label_font=13, ax=None,
 
     return ax
 
-def legend(losses, algorithms, figure, **kwargs):
+def oscr_legend(losses, algorithms, figure, **kwargs):
     """Creates a legend with the different line style and colors"""
     # add dummy plots for the different styles
     from matplotlib.lines import Line2D
@@ -289,27 +292,27 @@ def legend(losses, algorithms, figure, **kwargs):
 
 
 
-def get_histogram(array, unk_label=-1,
-                  metric='score',
+def get_histogram(scores,
+                  gt,
                   bins=100,
                   log_space=False,
                   geomspace_limits=(1, 1e2)):
-    """Calculates histograms of scores or norms"""
-    score = array['scores']
-    gt = array['gt'].astype(np.int64)
-    features = array['features']
-    norms = np.linalg.norm(features, axis=1)
-    kn = (gt >= 0)
-    unk = gt == unk_label
-    if metric == 'score':
-        kn_metric = score[kn, gt[kn]]
-        unk_metric = np.amax(score[unk], axis=1)
-    elif metric == 'norm':
-        kn_metric = norms[kn]
-        unk_metric = norms[unk]
+    """Calculates histograms of scores"""
+    known = gt >= 0
+    unknown = gt == -2
+    negative = gt == -1
+
+    knowns = scores[known, gt[known]]
+    unknowns = np.amax(scores[unknown], axis=1)
+    negatives = np.amax(scores[negative], axis=1)
+
     if log_space:
         lower, upper = geomspace_limits
         bins = np.geomspace(lower, upper, num=bins)
-    kn_hist, kn_edges = np.histogram(kn_metric, bins=bins)
-    unk_hist, unk_edges = np.histogram(unk_metric, bins=bins)
-    return kn_hist, kn_edges, unk_hist, unk_edges
+#    else:
+#        bins = np.linspace(0, 1, num=bins+1)
+    histograms = {}
+    histograms["known"] = np.histogram(knowns, bins=bins)
+    histograms["unknown"] = np.histogram(unknowns, bins=bins)
+    histograms["negative"] = np.histogram(negatives, bins=bins)
+    return histograms
