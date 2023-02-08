@@ -88,24 +88,11 @@ def main():
          tf.CenterCrop(224),
          tf.ToTensor()])
 
-    # create datasets
-    val_dataset = openset_imagenet.ImagenetDataset(
-        csv_file=args.protocol_directory/f"p{args.protocol}_val.csv",
-        imagenet_path=args.imagenet_directory,
-        transform=transform_val)
-
-    test_dataset = openset_imagenet.ImagenetDataset(
-        csv_file=args.protocol_directory/f"p{args.protocol}_test.csv",
-        imagenet_path=args.imagenet_directory,
-        transform=transform_val)
-
     # Info on console
     print("\n========== Data ==========")
-    print(f"Val dataset len:{len(val_dataset)}, labels:{val_dataset.label_count}")
     print(f"Test dataset len:{len(test_dataset)}, labels:{test_dataset.label_count}")
 
     # create data loaders
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.workers)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.workers)
 
     # create device

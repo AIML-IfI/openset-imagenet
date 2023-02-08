@@ -3,7 +3,7 @@ import time
 import sys
 import pathlib
 from collections import OrderedDict, defaultdict
-import numpy
+import numpy as np
 import torch
 from torch.optim import lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
@@ -15,56 +15,143 @@ import vast
 from loguru import logger
 from .metrics import confidence, auc_score_binary, auc_score_multiclass
 from .dataset import ImagenetDataset
-from .model import ResNet50, load_checkpoint, save_checkpoint, set_seeds
+from .model import ResNet50, ResNet50Proser
 from .losses import AverageMeter, EarlyStopping, EntropicOpensetLoss
 import tqdm
+from .model import set_seeds, save_checkpoint, load_checkpoint
 
 
-def train(model, data_loader, optimizer, loss_fn, trackers, cfg):
+
+
+def train_proser(model, data_loader, optimizer, loss_fn, trackers, cfg):
     """ Main training loop.
 
     Args:
-        model (torch.model): Model
+        model (ResNet50Proser): Model
         data_loader (torch.DataLoader): DataLoader
         optimizer (torch optimizer): optimizer
         loss_fn: Loss function
         trackers: Dictionary of trackers
         cfg: General configuration structure
     """
+    alpha = cfg.algorithm.alpha
+    beta_distribution = torch.distributions.beta.Beta(alpha, alpha)
+
     # Reset dictionary of training metrics
     for metric in trackers.values():
         metric.reset()
 
-    j = None
+    mixed_class_label = data_loader.dataset.label_count
 
     # training loop
     if not cfg.parallel:
         data_loader = tqdm.tqdm(data_loader)
+
+    #print('in the train function, class label count: ', mixed_class_label  )
+
+    # MG comment: I am not sure if this is a good idea.
+    # I do not know how batchnorm handles forward to be called several times before backward is called
+    model.train()
+
     for images, labels in data_loader:
-        model.train()  # To collect batch-norm statistics
-        batch_len = labels.shape[0]  # Samples in current batch
+        batch_len = labels.shape[0]
         optimizer.zero_grad()
         images = device(images)
         labels = device(labels)
 
-        # Forward pass
-        logits, features = model(images)
+        # split the batch into two parts.
+        # the first part is mixed and assigned to unknown
+        # the second contains the original samples
+        mixed_count = batch_len//2
+        clean_count = batch_len - mixed_count
+        indexes = device(torch.randperm(mixed_count))
 
-        # Calculate loss
-        j = loss_fn(logits, labels)
+        mixed_labels = labels[:mixed_count]
+        clean_labels = labels[mixed_count:]
+
+
+        ##### FIRST PART: mixtures
+        # create mixtures by extracting features from the first half of the batch
+        middle_layer_features = model.first_blocks(images[:mixed_count])
+
+
+        # mix some them
+        beta = beta_distribution.sample([]).item()
+        mixed_middle_layer_features = beta * middle_layer_features + (1-beta) * middle_layer_features[indexes]
+
+
+        # Masking the pairs of the same class,
+        # passing only mixed embeddings created from different classes.
+        mixed_middle_layer_features = mixed_middle_layer_features[mixed_labels != mixed_labels[indexes]]
+        #print('in train fun, mixed_middle_layer_features shape: ', mixed_middle_layer_features.shape)
+        if len(mixed_middle_layer_features):
+            # forward these to the second part of the network
+            mixed_logits, mixed_dummy_score, _ = model.last_blocks(mixed_middle_layer_features)
+            mixed_logits = torch.cat((mixed_logits, mixed_dummy_score[:,None]), dim=1)
+
+            # train the mixed logits to be of the unknown class
+            loss1 = loss_fn(mixed_logits, device(torch.as_tensor([mixed_class_label] * len(mixed_logits))))
+        else:
+            loss1 = device(torch.zeros(1))
+
+
+        ##### SECOND PART: clean data
+        # get network output for second half of the batch
+        clean_logits, clean_dummy_score, _ = model(images[mixed_count:])
+        clean_logits = torch.cat((clean_logits, clean_dummy_score[:,None]), dim=1)
+
+        # Setting the known class logit to -1e9 to force a classifier placeholder to be the second highest logit.
+        modified_clean_logits = clean_logits.clone()
+        for i in range(clean_count):
+            modified_clean_logits[i][clean_labels[i]] = -1e9
+        # quicker variant:?
+        # modified_clean_logits[clean_labels] = -1e9
+
+
+        ##### THIRD PART: losses
+
+        # train the clean outputs with the clean labels
+        loss2 = loss_fn(clean_logits, clean_labels)
+
+        # (eq. 5 in the paper) 2nd term in l1, forcing a placeholder classifier to be the 2nd closest to the known sample.
+        loss3 = loss_fn(modified_clean_logits, device(torch.as_tensor([mixed_class_label] * clean_count)))
+
+        # the final loss is a weighted combination of the former
+        j = cfg.algorithm.lambda0 * loss1 + cfg.algorithm.lambda1 * loss2 + cfg.algorithm.lambda2 * loss3
+
+        # track results
         trackers["j"].update(j.item(), batch_len)
+        trackers["j1"].update(loss1.item(), batch_len)
+        trackers["j2"].update(loss2.item(), batch_len)
+        trackers["j3"].update(loss3.item(), batch_len)
+
         # Backward pass
         j.backward()
         optimizer.step()
 
 
-def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
+def compute_bias(model, data_loader):
+    """Bias computation to tune the dummy (background class) logit magnitude"""
+    biases = []
+    with torch.no_grad():
+        for images, labels in data_loader:
+            images = device(images)
+            labels = device(labels)
+            logits, dummy_score, _ = model(images)
+            biases.append((torch.max(logits, dim=1) - dummy_score).cpu())
+
+    # Returns bias corresponding to the 5th percentile element, so that 95% of the data is classified as knowns.
+    biases = torch.sort(torch.cat(biases))
+    return biases[int(len(biases)*0.05)]
+
+
+# We will use our own default validation process, instead of taking PROSER's approach
+def validate_proser(model, data_loader, loss_fn, trackers, cfg):
     """ Validation loop.
     Args:
         model (torch.model): Model
         data_loader (torch dataloader): DataLoader
         loss_fn: Loss function
-        n_classes(int): Total number of classes
         trackers(dict): Dictionary of trackers
         cfg: General configuration structure
     """
@@ -72,15 +159,14 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
     for metric in trackers.values():
         metric.reset()
 
-    if cfg.loss.type == "garbage":
-        min_unk_score = 0.
-        unknown_class = n_classes - 1
-        last_valid_class = -1
-    else:
-        min_unk_score = 1. / n_classes
-        unknown_class = -1
-        last_valid_class = None
+    # since we are at the validation dataset, we have C+1 classes.
+    # Hence, out model is supposed to have C scores, plus the dummy score, which we use for evaluation
+    n_classes = data_loader.dataset.label_count
 
+    # for PROSER, we always have one additional output
+    min_unk_score = 0.
+    unknown_class = n_classes - 1
+    last_valid_class = -1
 
     model.eval()
     with torch.no_grad():
@@ -92,13 +178,13 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
             batch_len = labels.shape[0]  # current batch size, last batch has different value
             images = device(images)
             labels = device(labels)
-            logits, features = model(images)
-            scores = torch.nn.functional.softmax(logits, dim=1)
+            logits, dummy, features = model(images)
 
-            j = loss_fn(logits, labels)
-            trackers["j"].update(j.item(), batch_len)
+            # compute probabilities for all classes (excluding unknown)
+            mixed_logits = torch.cat((logits, dummy[:,None]), dim=1)
+            scores = torch.nn.functional.softmax(mixed_logits, dim=1)
 
-            # accumulate partial results in empty tensors
+            # store all scores and all targets
             start_ix = i * cfg.batch_size
             all_targets[start_ix: start_ix + batch_len] = labels
             all_scores[start_ix: start_ix + batch_len] = scores
@@ -115,25 +201,25 @@ def validate(model, data_loader, loss_fn, n_classes, trackers, cfg):
             trackers["conf_unk"].update(neg_conf, neg_count)
 
 
-def get_arrays(model, loader, garbage, pretty=False):
+def get_arrays(model, loader, pretty=False):
     """ Extract deep features, logits and targets for all dataset. Returns numpy arrays
 
     Args:
         model (torch model): Model.
         loader (torch dataloader): Data loader.
-        garbage (bool): Whether to remove final logit value
     """
+
+    n_classes = loader.dataset.label_count - (2 if -2 in loader.dataset.unique_classes else 1)
     model.eval()
     with torch.no_grad():
         data_len = len(loader.dataset)         # dataset length
-        logits_dim = model.logits.out_features  # logits output classes
-        if garbage:
-            logits_dim -= 1
-        features_dim = model.logits.in_features  # features dimensionality
+        features_dim = model.resnet_base.logits.in_features # features dimensionality
+        #print("logits dim: ", logits_dim, "feature dim:", features_dim)
+
         all_targets = torch.empty(data_len, device="cpu")  # store all targets
-        all_logits = torch.empty((data_len, logits_dim), device="cpu")   # store all logits
+        all_logits = torch.empty((data_len, n_classes), device="cpu")   # store all logits
         all_feat = torch.empty((data_len, features_dim), device="cpu")   # store all features
-        all_scores = torch.empty((data_len, logits_dim), device="cpu")
+        all_scores = torch.empty((data_len, n_classes), device="cpu")
 
         index = 0
         if pretty:
@@ -142,14 +228,11 @@ def get_arrays(model, loader, garbage, pretty=False):
             curr_b_size = labels.shape[0]  # current batch size, very last batch has different value
             images = device(images)
             labels = device(labels)
-            logits, feature = model(images)
-            # compute softmax scores
-            scores = torch.nn.functional.softmax(logits, dim=1)
-            # shall we remove the logits of the unknown class?
-            # We do this AFTER computing softmax, of course.
-            if garbage:
-                logits = logits[:,:-1]
-                scores = scores[:,:-1]
+            logits, dummy, feature = model(images)
+            # Compute softmax over all logits, including the dummy class
+            scores = torch.nn.functional.softmax(torch.cat((logits, dummy.view(logits.shape[0], 1)), dim=1), dim=1)
+            # We always subtract the scores for the unknown class, after computing softmax
+            scores = scores[:,:-1]
             # accumulate results in all_tensor
             all_targets[index:index + curr_b_size] = labels.detach().cpu()
             all_logits[index:index + curr_b_size] = logits.detach().cpu()
@@ -163,21 +246,18 @@ def get_arrays(model, loader, garbage, pretty=False):
             all_scores.numpy())
 
 
-
-
-def worker(cfg):
+def worker(cfg, dummy_count_index=0):
     """ Main worker creates all required instances, trains and validates the model.
     Args:
         cfg (NameSpace): Configuration of the experiment
     """
     # referencing best score and setting seeds
     set_seeds(cfg.seed)
+    cfg.algorithm.dummy_count = cfg.algorithm.dummy_counts[dummy_count_index]
 
     BEST_SCORE = 0.0    # Best validation score
     START_EPOCH = 0     # Initial training epoch
-
-    # Configure logger. Log only on first process. Validate only on first process.
-#    msg_format = "{time:DD_MM_HH:mm} {message}"
+    cfg.log_name = cfg.log_name.format(cfg.loss.type, cfg.algorithm.type, cfg.epochs, cfg.algorithm.dummy_count)
     msg_format = "{time:DD_MM_HH:mm} {name} {level}: {message}"
     logger.configure(handlers=[{"sink": sys.stderr, "level": "INFO", "format": msg_format}])
     logger.add(
@@ -185,6 +265,7 @@ def worker(cfg):
         format=msg_format,
         level="INFO",
         mode='w')
+    logger.info('file created')
 
     # Set image transformations
     train_tr = transforms.Compose(
@@ -214,14 +295,11 @@ def worker(cfg):
             transform=val_tr
         )
 
-        # If using garbage class, replaces label -1 to maximum label + 1
-        if cfg.loss.type == "garbage":
-            # Only change the unknown label of the training dataset
-            train_ds.replace_negative_label()
-            val_ds.replace_negative_label()
-        elif cfg.loss.type == "softmax":
-            # remove the negative label from softmax training set, not from val set!
-            train_ds.remove_negative_label()
+        # remove the negative label from PROSER training set
+        train_ds.remove_negative_label()
+        # for the val set, we change them to be in class C+1
+        val_ds.replace_negative_label()
+
     else:
         raise FileNotFoundError("train/validation file does not exist")
 
@@ -256,29 +334,24 @@ def worker(cfg):
     v_metrics = defaultdict(AverageMeter)
 
     # set loss
-    loss = None
-    if cfg.loss.type == "entropic":
-        # number of classes - 1 since we have no label for unknown
-        n_classes = train_ds.label_count - 1
-    else:
-        # number of classes when training with extra garbage class for unknowns, or when unknowns are removed
-        n_classes = train_ds.label_count
+    # number of classes when training with extra garbage class for unknowns, or when unknowns are removed
+    n_classes = train_ds.label_count + (1 if cfg.loss.type == "garbage" else 0)
 
-    if cfg.loss.type == "entropic":
-        # We select entropic loss using the unknown class weights from the config file
-        loss = EntropicOpensetLoss(n_classes, cfg.loss.w)
-    elif cfg.loss.type == "softmax":
-        # We need to ignore the index only for validation loss computation
-        loss = torch.nn.CrossEntropyLoss(ignore_index=-1)
-    elif cfg.loss.type == "garbage":
-        # We use balanced class weights
-        class_weights = device(train_ds.calculate_class_weights())
-        loss = torch.nn.CrossEntropyLoss(weight=class_weights)
+    loss = torch.nn.CrossEntropyLoss(ignore_index=-1)
 
     # Create the model
-    model = ResNet50(fc_layer_dim=n_classes,
-                     out_features=n_classes,
-                     logit_bias=False)
+    base = ResNet50(
+        fc_layer_dim=n_classes,
+        out_features=n_classes,
+        logit_bias=False
+    )
+    model = ResNet50Proser(
+        dummy_count = cfg.algorithm.dummy_count,
+        fc_layer_dim=n_classes,
+        resnet_base = base,
+        loss_type=cfg.loss.type
+    )
+
     device(model)
 
     # Create optimizer
@@ -297,8 +370,7 @@ def worker(cfg):
     else:
         scheduler = None
 
-
-        # Resume a training from a checkpoint
+    # Resume a training from a checkpoint
     if cfg.checkpoint is not None:
         # Get the relative path of the checkpoint wrt train.py
         START_EPOCH, BEST_SCORE = load_checkpoint(
@@ -308,14 +380,22 @@ def worker(cfg):
             scheduler=scheduler)
         logger.info(f"Best score of loaded model: {BEST_SCORE:.3f}. 0 is for fine tuning")
         logger.info(f"Loaded {cfg.checkpoint} at epoch {START_EPOCH}")
+    else:
+        # for PROSER, we always start with a pre-trained model, which we need to load here
+        start_epoch, best_score = load_checkpoint(
+            model = base,
+            checkpoint = cfg.model_path.format(cfg.output_directory, cfg.loss.type, "threshold", "curr"),
+            opt = None,
+            scheduler = None
+        )
 
+        logger.info(f"Loaded {cfg.model_path.format(cfg.output_directory, cfg.loss.type, 'threshold', 'curr')} and taking model from epoch {start_epoch} that achieved best score {best_score}")
 
     # Print info to console and setup summary writer
-
-    # Info on console
     logger.info("============ Data ============")
     logger.info(f"train_len:{len(train_ds)}, labels:{train_ds.label_count}")
     logger.info(f"val_len:{len(val_ds)}, labels:{val_ds.label_count}")
+    logger.info(f"dummy_count: {cfg.algorithm.dummy_count}")
     logger.info("========== Training ==========")
     logger.info(f"Initial epoch: {START_EPOCH}")
     logger.info(f"Last epoch: {cfg.epochs}")
@@ -332,7 +412,7 @@ def worker(cfg):
         epoch_time = time.time()
 
         # training loop
-        train(
+        train_proser(
             model=model,
             data_loader=train_loader,
             optimizer=opt,
@@ -343,11 +423,10 @@ def worker(cfg):
         train_time = time.time() - epoch_time
 
         # validation loop
-        validate(
+        validate_proser(
             model=model,
             data_loader=val_loader,
             loss_fn=loss,
-            n_classes=n_classes,
             trackers=v_metrics,
             cfg=cfg)
 
@@ -359,7 +438,6 @@ def worker(cfg):
 
         # Logging metrics to tensorboard object
         writer.add_scalar("train/loss", t_metrics["j"].avg, epoch)
-        writer.add_scalar("val/loss", v_metrics["j"].avg, epoch)
         # Validation metrics
         writer.add_scalar("val/conf_kn", v_metrics["conf_kn"].avg, epoch)
         writer.add_scalar("val/conf_unk", v_metrics["conf_unk"].avg, epoch)
@@ -381,12 +459,12 @@ def worker(cfg):
             f"v:{val_time:.1f}s")
 
         # save best model and current model
-        ckpt_name = cfg.model_path.format(cfg.output_directory, cfg.loss.type, "threshold", "curr")
+        ckpt_name = cfg.algorithm.output_model_path.format(cfg.output_directory, cfg.loss.type, cfg.algorithm.type, cfg.epochs, cfg.algorithm.dummy_count, "curr")
         save_checkpoint(ckpt_name, model, epoch, opt, curr_score, scheduler=scheduler)
 
         if curr_score > BEST_SCORE:
             BEST_SCORE = curr_score
-            ckpt_name = cfg.model_path.format(cfg.output_directory, cfg.loss.type, "threshold", "best")
+            ckpt_name = cfg.algorithm.output_model_path.format(cfg.output_directory, cfg.loss.type, cfg.algorithm.type, cfg.epochs, cfg.algorithm.dummy_count, "best")
             # ckpt_name = f"{cfg.name}_best.pth"  # best model
             logger.info(f"Saving best model {ckpt_name} at epoch: {epoch}")
             save_checkpoint(ckpt_name, model, epoch, opt, BEST_SCORE, scheduler=scheduler)

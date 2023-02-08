@@ -26,6 +26,16 @@ class ImagenetDataset(Dataset):
         self.label_count = len(self.dataset[1].unique())
         self.unique_classes = np.sort(self.dataset[1].unique())
 
+    def re_order_labels(self):
+        """This function is intended to reorganize the validation set based on the labels
+        to avoid disagreements between openmax/evm results and get_arrays functions
+        as they may not follow the same order of the samples which is important in oscr calculations"""
+        self.dataset.sort_values(by=1, inplace=True)
+        pos_cases = self.dataset[self.dataset[1]>=0]
+        neg_cases = self.dataset[self.dataset[1]<0]
+        self.dataset = pd.concat([pos_cases, neg_cases])
+
+
     def __len__(self):
         """Returns the length of the dataset. """
         return len(self.dataset)

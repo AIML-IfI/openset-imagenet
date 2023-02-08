@@ -51,7 +51,8 @@ setup(
       'console_scripts' : [
         'train_imagenet.py     = openset_imagenet.script.train:main',
         'train_imagenet_all.py = openset_imagenet.script.train_all:main',
-        'evaluate_imagenet.py  = openset_imagenet.script.evaluate:main',
+        'parameter_selection.py= openset_imagenet.script.parameter_selection:main',
+        'evaluate_imagenet.py  = openset_imagenet.script.evaluate_algs:main',
         'plot_imagenet.py      = openset_imagenet.script.plot_all:main',
         'protocols_imagenet.py = openset_imagenet.script.protocols:main'
       ],

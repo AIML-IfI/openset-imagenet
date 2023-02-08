@@ -43,7 +43,7 @@ Please run:
 
 Afterward, activate the environment via:
 
-    conda activate openset-imagenet
+    conda activate openset-imagenet-comparison
 
 ## Scripts
 
@@ -59,58 +59,93 @@ Please refer to its help for details:
 Basically, you have to provide the original directory for your ImageNet images, and the directory containing the files for the `robustness` library.
 The other options should be changed rarely.
 
-### Training of one model
+### Training of one base model
 
 The training can be performed using the `train_imagenet.py` script.
-It relies on a configuration file as can be found in `config/train.yaml`.
+It relies on a configuration file as can be found in `config/threshold.yaml`.
 Please set all parameters as required (the default values are as used in the paper), and run:
 
-    train_imagenet.py [config] [protocol] -o [outdir] -g GPU
+    train_imagenet.py [config] [protocol] -g GPU
 
-where `[config]` is the configuration file, `[protocol]` one of the three protocols, and `[outdir]` the output directory of the trained model and some logs.
+where `[config]` is the configuration file, `[protocol]` one of the three protocols.
 The `-g` option can be used to specify that the training should be performed on the GPU (**highly recommended**), and you can also specify a GPU index in case you have several GPUs at your disposal.
 
-### Training of all the models in the paper
+### Running different algorithms using that model
+
+The other algorithms (EVM, OpenMax, PROSER) can be executed with exactly the same `train_imagenet.py` script.
+Simply provide another configuration file from the `config/` directory.
+Again, you might want to adapt some parameters in those configuration files, but they are all set according to the results in the paper.
+
+.. note::
+   Please make sure that you have run the base model training before executing other algorithms.
+
+### Training of all the models with all of the algorithms in the paper
 
 The `train_imagenet_all.py` script provides a shortcut to train a model with three different loss functions on three different protocols.
-It relies on the same configuration file (`config/train.yaml`) where some parts are modified during execution.
+It relies on the same configuration files from the `config/` directory where some parts are modified during execution, and read the config files with the names according to the `--algorithms`.
 You can run:
 
-    train_imagenet_all.py --configuration [config] -g [list-of-gpus]
+    train_imagenet_all.py -g [list-of-gpus]
 
-where `[config]` is the configuration file, which is by default `config/train.yaml`.
-You can also select some of the `--protocols` to run on, as well as some of the `--loss-functions`, or change the `--output-directory`.
+where `[config]` is the directory containing all configuration files, which is by default `config/`.
+You can also select some of the `--protocols` to run on, as well as some of the `--loss-functions`, and some of the `--algorithms`.
 The `-g` option can take several GPU indexes, and trainings will be executed in parallel if more than one GPU index is specified.
-In case the training stops early for unknown reasons, you can safely use the `--continue` option to continue training from the last epoch.
+In case the training stops early for unknown reasons, you can safely use the `--continue` option to continue training from the last epoch -- this option also works for the PROSER training.
 
 When you have a single GPU available, start the script and book a trip to Hawaii, results will finish in about a week.
 The more GPUs you can spare, the faster the training will end.
+However, make sure that the `threshold` algorithm is always executed first, maybe by running:
+
+    train_imagenet_all.py -g [list-of-gpus] --algorithms threshold
+    train_imagenet_all.py -g [list-of-gpus] --algorithms openmax evm proser
+
+### Parameter Optimization
+
+Some of our algorithms will require to adapt the parameters to the different loss functions and protocols.
+Particularly, EVM and OpenMax have a set of parameters that should be optimized.
+Due to the nature of the algorithms, the `train_imagenet_all.py` script has already trained and saved all parameter combinations as provided in the configuration files of these two algorithms, here the task is only to evaluate the algorithms on unseen data.
+Naturally, we will make use of the known and the negative samples of the validation set to perform the parameter optimization.
+
+The parameter optimization will be done via the `parameter_optimization.py` script.
+It will read the configuration files of the EVM and OpenMax algorithms, load the images from the validation set, extract features with all trained base networks (as given by the `--losses` parameter), and evaluate the different parameter settings of the algorithms.
+Particularly, the CCR values at various FPR thresholds will be computed.
+Depending on the protocol, this might require several minutes to hours.
+Finally, it will write a separate LaTeX table file per protocol/algorithm/loss combination, and summary LaTeX tables including the best parameters for each algorithm.
+
+.. note::
+   Note that also the PROSER algorithm has parameters which we might want to optimize.
+   However, since this would require a complete network finetuning for each parameter/protocol/algorithm combination, we do not include PROSER in this script.
+
+The optimized parameters should also be transferred into the `config/test.yaml`, we have done this already for you.
 
 ### Evaluation
 
-Finally, the `plot_imagenet.py` script can be used to perform the plots as we have them in the paper.
-This script will use all trained models (as resulting from the `train_imagenet_all.py` script), extract the features and scores for the validation and test set, and plots into a single file (`Results_last.pdf` by default), as well as providing the table from the appendix as a LaTeX table (default: `Results_last.tex`)
+In order to evaluate all models on the test sets, you can make use of the `evaluate_imagenet.py` script.
+This script will use all trained models (as resulting from the `train_imagenet_all.py` script) and extract the features, logits and scores for the test set.
+A detailed list of algorithms and parameters is read from the `config/test.yaml` file, which is the default for the `--configuration` option of the `evaluate_imagenet.py` script.
+Any model that has not been trained will automatically be skipped.
+Otherwise, you can restrict the numbers of `--losses` and `--algorithms`, as well as selecting single `--protocols`.
+It is also recommended to run feature extraction on a `--gpu`.
+For more options and details on the options, please refer to:
 
-1. OSCR curves are presented in Figure 2 of the paper, on the validation and test sets.
-2. Confidence propagation plots as in Figure 3, for all three loss functions on the validation set.
-3. Histograms of softmax scores as in Figure 4 of the paper.
+    evaluate_imagenet.py --help
 
-Please specify the `--imagenet-directory` so that the original image files can be found, and select an appropriate GPU index.
+### Plotting
+
+Finally, the `plot_imagenet.py` script can be used to create the plots and result tables from the test set as we have them in the paper.
+The script will take information from the same `config/test.yaml` configuration file and make use of all results are generated by the `evaluate_imagenet.py` script.
+It will plot all results into a single PDF file (`Results_last.pdf` by default), containing multiple pages.
+Page 1 will display all OSCR plots for all algorithms applied to networks trained with all loss functions, where both negative and unknown samples are evaluated for each of the three protocols.
+The following three pages will contain score distribution plots of the different algorithms (excluding MaxLogits), separated for the three loss functions.
+
+Again, results that do not exist are skipped automatically.
+Since the list of algorithms and loss functions will make the plot very busy, you can try to sub-select several `--losses`, `--algorithms`, or `--protocols` to reduce the number of lines in the plots.
+
 You can also modify other parameters, see:
 
     plot_imagenet.py --help
 
-For example, you can specify that you want to use the best model based on our confidence measure, via `--use-best`.
-You can also regenerate the linear OSCR plots via `--linear`.
-You can sort the plots by loss so that you can compare across protocols via `--sort-by-loss`.
-For the remaining parameters it is recommended to keep the default values to be able to regenerate the plots from the paper.
-
-The list of commands to reproduce all table and figures, including the supplemental material, is:
-
-    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --gpu [gpu_index]
-    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --linear
-    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --use-best --gpu [gpu_index]
-    plot_imagenet.py --imagenet-directory [YOUR_IMAGENET_PATH] --sort-by-loss
+Additionally, the script will produce three tables, one for each protocol, where the CCR values at various FPR values are tabularized, for an easier comparison and reference.
 
 ## Getting help
 

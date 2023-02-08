@@ -1,0 +1,47 @@
+# General Parameters
+checkpoint:             # set the checkpoint from where to continue, leave empty to start from scratch
+log_name: training.log  # name of the file with training info
+gpu:                    # index of a GPU, if available
+output_directory: experiments  # the directory where to write the model file
+parallel: false
+
+model_path: "{}/{}_{}_{}.pth" #for those which use pretrained models
+
+# Data Parameters
+data:
+  imagenet_path: /local/scratch/datasets/ImageNet/ILSVRC2012/ # ILSVRC2012 path
+  train_file: protocols/p{}_train.csv        # relative to data directory
+  val_file:   protocols/p{}_val.csv          # relative to data directory
+
+# Common parameters
+seed: 42        # Common seed across all source of randomness
+batch_size: 32  # Batch size for PROSER training
+epochs: 20
+workers: 4      # Dataloader number of workers
+patience: 0     # Number of epochs to wait before stopping the training. 0 means no early stopping
+
+# loss parameters
+loss:
+  type: softmax  # either {entropic, softmax, garbage}
+  # Entropic Parameters
+  w: 1.
+
+# Optimizer Parameters for PROSER
+opt:
+  type: adam  # Two options: {adam, sgd}
+  lr: 1.e-3   # Initial learning rate
+  decay: 0    # Number of epochs to wait for each learning rate reduction. 0 means no decay
+  gamma: 1    # Factor to reduce the learning rate
+
+
+# Algorithm parameters
+algorithm:
+  type: proser
+  output_model_path: "{}/{}_{}_{}_{}_{}.pth" # directory/loss.type_alg.type_epoch_dummycount_curr.pth
+
+  # Proser Parameters
+  lambda0: 0.1
+  lambda1: 1.
+  lambda2: 1.
+  alpha: 1.
+  dummy_counts: [1, 2, 5, 10, 25, 100]
