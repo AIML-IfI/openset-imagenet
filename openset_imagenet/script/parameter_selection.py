@@ -39,9 +39,9 @@ def command_line_options(command_line_arguments=None):
     )
     parser.add_argument(
         "--algorithms", "-a",
-        choices = ["openmax", "proser", "evm"],
+        choices = ["openmax", "evm"],
         nargs = "+",
-        default = ["openmax", "proser", "evm"],
+        default = ["openmax", "evm"],
         help = "Which algorithms to optimize. Specific parameters should be in the yaml files"
     )
     parser.add_argument(
@@ -171,20 +171,19 @@ def process_model(protocol, loss, algorithm, cfg, thresholds, suffix, gpu):
     else:
         n_classes = val_dataset.label_count - 1  # number of classes - 1 when training was without garbage class
 
-    if algorithm in ("openmax", "evm"):
-        base_model = load_model(cfg, loss, "threshold", protocol, suffix, output_directory, n_classes)
-        if base_model is None:
-            logger.warning(f"The base model for protocol {protocol} and {loss} could not be found -- skipping")
-            return
+    base_model = load_model(cfg, loss, "threshold", protocol, suffix, output_directory, n_classes)
+    if base_model is None:
+        logger.warning(f"The base model for protocol {protocol} and {loss} could not be found -- skipping")
+        return
 
-        # extract features
-        logger.info(f"Extracting base scores for protocol {protocol}, {loss}")
-        gt, logits, features, scores = extract(base_model, val_loader, "threshold", loss)
-        # remove model from GPU memory
-        del base_model
+    # extract features
+    logger.info(f"Extracting base scores for protocol {protocol}, {loss}")
+    gt, logits, features, scores = extract(base_model, val_loader, "threshold", loss)
+    # remove model from GPU memory
+    del base_model
 
-        # get results
-        return post_process(gt, logits, features, scores, cfg, thresholds, protocol, loss, algorithm, output_directory, gpu)
+    # get results
+    return post_process(gt, logits, features, scores, cfg, thresholds, protocol, loss, algorithm, output_directory, gpu)
 
 
 HEADERS = {
