@@ -356,7 +356,7 @@ def worker(cfg, dummy_count_index=0):
 
     # Create optimizer
     if cfg.opt.type == "sgd":
-        opt = torch.optim.SGD(params=model.parameters(), lr=cfg.opt.lr, momentum=0.9)
+        opt = torch.optim.SGD(params=model.parameters(), lr=cfg.opt.lr * 0.1, momentum=0.9, weight_decay=5e-4)
     else:
         opt = torch.optim.Adam(params=model.parameters(), lr=cfg.opt.lr)
 

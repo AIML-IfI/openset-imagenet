@@ -28,7 +28,7 @@ loss:
 
 # Optimizer Parameters for PROSER
 opt:
-  type: adam  # Two options: {adam, sgd}
+  type: sgd  # Two options: {adam, sgd}
   lr: 1.e-3   # Initial learning rate
   decay: 0    # Number of epochs to wait for each learning rate reduction. 0 means no decay
   gamma: 1    # Factor to reduce the learning rate
