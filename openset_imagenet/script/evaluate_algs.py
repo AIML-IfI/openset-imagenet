@@ -222,27 +222,27 @@ def process_model(protocol, loss, algorithms, cfg, suffix, gpu, force):
             logger.info("Using previously computed features")
             gt, logits, features, base_scores = base_data["gt"], base_data["logits"], base_data["features"], base_data["scores"]
 
-        for algorithm in algorithms:
-            if algorithm not in ("proser", "threshold"):
-                logger.info(f"Post-processing scores for protocol {protocol}, {loss} with {algorithm}")
-                # post-process scores
-                scores = post_process(gt, logits, features, base_scores, cfg, protocol, loss, algorithm, output_directory, gpu)
-                if scores is not None:
-                    write_scores(gt, logits, features, scores, loss, algorithm, suffix, output_directory)
-            if algorithm == "proser":
-                proser_data = None if force else load_scores(loss, "proser", suffix, output_directory)
-                if proser_data is None:
-                    # load proser model
-                    logger.info(f"Loading proser model for protocol {protocol}, {loss}")
-                    proser_model = load_model(cfg, loss, "proser", protocol, suffix, output_directory, n_classes)
-                    if proser_model is not None:
-                        # and extract features using that model
-                        logger.info(f"Extracting proser scores for protocol {protocol}, {loss}")
-                        proser_gt, proser_logits, proser_features, proser_scores = extract(proser_model, test_loader, "proser", loss)
-                        write_scores(proser_gt, proser_logits, proser_features, proser_scores, loss, "proser", suffix, output_directory)
-                        del proser_model
-                else:
-                    logger.info("Relying on previously defined proser scores")
+    for algorithm in algorithms:
+        if algorithm not in ("proser", "threshold"):
+            logger.info(f"Post-processing scores for protocol {protocol}, {loss} with {algorithm}")
+            # post-process scores
+            scores = post_process(gt, logits, features, base_scores, cfg, protocol, loss, algorithm, output_directory, gpu)
+            if scores is not None:
+                write_scores(gt, logits, features, scores, loss, algorithm, suffix, output_directory)
+        if algorithm == "proser":
+            proser_data = None if force else load_scores(loss, "proser", suffix, output_directory)
+            if proser_data is None:
+                # load proser model
+                logger.info(f"Loading proser model for protocol {protocol}, {loss}")
+                proser_model = load_model(cfg, loss, "proser", protocol, suffix, output_directory, n_classes)
+                if proser_model is not None:
+                    # and extract features using that model
+                    logger.info(f"Extracting proser scores for protocol {protocol}, {loss}")
+                    proser_gt, proser_logits, proser_features, proser_scores = extract(proser_model, test_loader, "proser", loss)
+                    write_scores(proser_gt, proser_logits, proser_features, proser_scores, loss, "proser", suffix, output_directory)
+                    del proser_model
+            else:
+                logger.info("Relying on previously defined proser scores")
 
 
 

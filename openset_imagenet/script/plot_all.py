@@ -176,18 +176,19 @@ def plot_score_distributions(args, scores, ground_truths, pdf):
     edge_negative = colors.to_rgba('tab:green', 1)
     fill_negative = colors.to_rgba('tab:green', 0.04)
 
-    for loss in args.losses:
+    for p, protocol in enumerate(args.protocols):
 
-        fig = pyplot.figure(figsize=(3*A+1, 2*P))
-        gs = fig.add_gridspec(P, A, hspace=0.2, wspace=0.08)
+#        fig = pyplot.figure(figsize=(3*A+1, 2*P))
+        fig = pyplot.figure(figsize=(3*A+1, 2*L))
+        gs = fig.add_gridspec(L, A, hspace=0.2, wspace=0.08)
         axs = gs.subplots(sharex=True, sharey=False)
 
-        for p, protocol in enumerate(args.protocols):
+        for l, loss in enumerate(args.losses):
             max_a = (0, 0)
 
             for a, algorithm in enumerate(algorithms):
                 # Calculate histogram
-                ax = axs[p,a]
+                ax = axs[l,a]
                 if scores[protocol][loss][algorithm] is not None:
                     histograms = openset_imagenet.util.get_histogram(
                         scores[protocol][loss][algorithm],
@@ -199,7 +200,8 @@ def plot_score_distributions(args, scores, ground_truths, pdf):
                     ax.stairs(histograms["unknown"][0], histograms["unknown"][1], fill=True, color=fill_unknown, edgecolor=edge_unknown, linewidth=1)
                     ax.stairs(histograms["negative"][0], histograms["negative"][1], fill=True, color=fill_negative, edgecolor=edge_negative, linewidth=1)
 
-                ax.set_title(f"{NAMES[protocol]} {NAMES[algorithm]}")
+#                ax.set_title(f"{NAMES[protocol]} {NAMES[algorithm]}")
+                ax.set_title(f"{NAMES[loss]} + {NAMES[algorithm]}")
 
                 # set tick locator
                 max_a = max(max_a, (max(numpy.max(h[0]) for h in histograms.values()), a))
@@ -212,7 +214,8 @@ def plot_score_distributions(args, scores, ground_truths, pdf):
             for a in range(A):
                 if a != max_a[1]:
 #                    axs[p,a].set_ylim([0, max_a[0]])
-                    axs[p,a].sharey(axs[p,max_a[1]])
+#                    axs[p,a].sharey(axs[p,max_a[1]])
+                    axs[l,a].sharey(axs[l,max_a[1]])
 
 
         # Manual legend
@@ -221,11 +224,12 @@ def plot_score_distributions(args, scores, ground_truths, pdf):
                            Line2D([None], [None], color=edge_negative),
                            Line2D([None], [None], color=edge_unknown)]
         legend_labels = ["Known", "Negative", "Unknown"]
-        fig.legend(handles=legend_elements, labels=legend_labels, loc="lower center", ncol=3, bbox_to_anchor=(0.3,0.0))
+#        fig.legend(handles=legend_elements, labels=legend_labels, loc="lower center", ncol=3, bbox_to_anchor=(0.3,0.0))
+        fig.legend(handles=legend_elements, labels=legend_labels, loc="lower center", ncol=3)
 
 
         # X label
-        fig.text(0.7, 0.01, f'{NAMES[loss]} Scores', ha='center', fontsize=font_size)
+#        fig.text(0.7, 0.01, f'{NAMES[loss]} Scores', ha='center', fontsize=font_size)
 
         pdf.savefig(bbox_inches='tight', pad_inches = 0)
 
@@ -240,33 +244,50 @@ def ccr_table(args, scores, gt):
         latex_file = args.tables.format(protocol, 'best' if args.use_best else 'last')
         print("Writing CCR tables for protocol", protocol, "to file", latex_file)
         # compute all CCR values and store maximum values
-        results = collections.defaultdict(dict)
-        max_total = numpy.zeros(len(args.fpr_thresholds))
-        max_by_alg = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
-        max_by_loss = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
+        results_n = collections.defaultdict(dict)
+        max_total_n = numpy.zeros(len(args.fpr_thresholds))
+        max_by_alg_n = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
+        max_by_loss_n = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
+        results_u = collections.defaultdict(dict)
+        max_total_u = numpy.zeros(len(args.fpr_thresholds))
+        max_by_alg_u = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
+        max_by_loss_u = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
         for algorithm in args.algorithms:
             for loss in args.losses:
+                ccrs = openset_imagenet.util.ccr_at_fpr(gt[protocol], scores[protocol][loss][algorithm], args.fpr_thresholds, unk_label=-1)
+                results_n[algorithm][loss] = ccrs
+                max_total_n = nonemax(max_total_n, ccrs)
+                max_by_alg_n[algorithm] = nonemax(max_by_alg_n[algorithm], ccrs)
+                max_by_loss_n[loss] = nonemax(max_by_loss_n[loss], ccrs)
+
                 ccrs = openset_imagenet.util.ccr_at_fpr(gt[protocol], scores[protocol][loss][algorithm], args.fpr_thresholds, unk_label=-2)
-                results[algorithm][loss] = ccrs
-                max_total = nonemax(max_total, ccrs)
-                max_by_alg[algorithm] = nonemax(max_by_alg[algorithm], ccrs)
-                max_by_loss[loss] = nonemax(max_by_loss[loss], ccrs)
+                results_u[algorithm][loss] = ccrs
+                max_total_u = nonemax(max_total_u, ccrs)
+                max_by_alg_u[algorithm] = nonemax(max_by_alg_u[algorithm], ccrs)
+                max_by_loss_u[loss] = nonemax(max_by_loss_u[loss], ccrs)
 
 
         with open(latex_file, "w") as f:
             # write header
-            f.write("\\bf Algorithm & \\bf Loss & ")
-            f.write(" & ".join([THRESHOLDS[t] for t in args.fpr_thresholds]))
+            f.write("\\multirow{2}{*}{\\bf Algorithm} & \\multirow{2}{*}{\\bf Loss} & \\multicolumn{3}{c||}{\\bf Negative} & \\multicolumn{3}{c||}{\\bf Unknown} & \\bf Acc \\\\\\cline{3-9}\n & & ")
+#            f.write("\\bf Algorithm & \\bf Loss & ")
+            f.write(" & ".join([THRESHOLDS[t] for t in args.fpr_thresholds[:-1]] * 2 + [THRESHOLDS[1]]))
             f.write("\\\\\\hline\\hline\n")
             for algorithm in args.algorithms:
                 f.write(f"\\multirow{{{len(args.losses)}}}{{*}}{{{NAMES[algorithm]}}}")
                 for loss in args.losses:
                     f.write(f" & {NAMES[loss]}")
-                    for i, v in enumerate(results[algorithm][loss]):
+                    for i, v in enumerate(results_n[algorithm][loss][:-1]):
                         if v is None: f.write(" &")
-                        elif v == max_total[i]: f.write(f" & \\textcolor{{blue}}{{\\bf {v:.4f}}}")
-                        elif v == max_by_alg[algorithm][i]: f.write(f" & \\it {v:.4f}")
-                        elif v == max_by_loss[loss][i]: f.write(f" & \\underline{{{v:.4f}}}")
+                        elif v == max_total_n[i]: f.write(f" & \\textcolor{{blue}}{{\\bf {v:.4f}}}")
+                        elif v == max_by_alg_n[algorithm][i]: f.write(f" & \\it {v:.4f}")
+                        elif v == max_by_loss_n[loss][i]: f.write(f" & \\underline{{{v:.4f}}}")
+                        else: f.write(f" & {v:.4f}")
+                    for i, v in enumerate(results_u[algorithm][loss]):
+                        if v is None: f.write(" &")
+                        elif v == max_total_u[i]: f.write(f" & \\textcolor{{blue}}{{\\bf {v:.4f}}}")
+                        elif v == max_by_alg_u[algorithm][i]: f.write(f" & \\it {v:.4f}")
+                        elif v == max_by_loss_u[loss][i]: f.write(f" & \\underline{{{v:.4f}}}")
                         else: f.write(f" & {v:.4f}")
                     f.write("\\\\\n")
                 f.write("\\hline\n")
