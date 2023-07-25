@@ -218,11 +218,6 @@ def plot_single_oscr(fpr, ccr, ax, loss, algorithm, scale):
         ax.set_ylim(0.0, 0.8)
         # ax.set_xlim(None, None)
         ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))  # , prune='lower'))
-    # Remove fpr=0 since it cause errors with different ccrs and logscale.
-#    if len(x):
-#        non_zero = x != 0
-#        x = x[non_zero]
-#        y = y[non_zero]
     ax.plot(fpr,
             ccr,
             linestyle=STYLES[loss],

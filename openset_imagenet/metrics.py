@@ -42,26 +42,6 @@ def confidence(scores, target_labels, offset=0., unknown_class = -1, last_valid_
     return kn_conf, kn_count, neg_conf, neg_count
 
 
-def predict_objectosphere(logits, features, threshold):
-    """ Predicts the class and softmax score of the input samples. Uses the product norms*score to
-    threshold the unknown samples.
-
-    Args:
-        logits(tensor): Logit values of the samples.
-        features(tensor): Deep features of the samples.
-        threshold(float): Threshold value to discard unknowns.
-
-    Returns:
-        Tensor of predicted classes and predicted score.
-    """
-    scores = f.softmax(logits, dim=1)
-    pred_score, pred_class = torch.max(scores, dim=1)
-    norms = torch.norm(features, p=2, dim=1)
-    unk = (norms*pred_score) < threshold
-    pred_class[unk] = -1
-    return torch.stack((pred_class, pred_score), dim=1)
-
-
 def auc_score_binary(target_labels, pred_scores, unk_class=-1):
     """ Calculates the binary AUC, all known samples labeled as 1. All negatives labeled as -1
     (or -2 if measuring unknowns).
