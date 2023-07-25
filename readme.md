@@ -11,6 +11,18 @@ If you make use of our evaluation protocols or this implementation, please cite 
         organization = {IEEE/CVF}
     }
 
+These experiments have been extended to include more algorithms, including MaxLogits, OpenMax, EVM and PROSER.
+The publication is currently under review:
+
+    @article{bisgin2023large,
+        title     = {Large-Scale Evaluation of Open-Set Image Classification Techniques},
+        author    = {Bisgin, Halil and Palechor, Andres and Suter, Mike and G\"unther, Manuel},
+        journal   = {\textbf{under submission}},
+        year      = {2023}
+    }
+
+
+
 ## LICENSE
 This code package is open-source based on the BSD license.
 Please see `LICENSE` for details.
@@ -30,8 +42,14 @@ If not, you can also rely on the pre-computed protocol files, which can be found
 
     unzip protocols.zip
 
-Finally, we have uploaded the [pre-trained models](https://seafile.ifi.uzh.ch/d/af484b369a2d4d13a04f) to allow for an easier comparison to our methods.
+Finally, we have uploaded the [pre-trained models](https://seafile.ifi.uzh.ch/d/6b3f923693f24bd18e36) to allow for an easier comparison to our methods.
 Please download them into a directory `experiments` (the default directory in the below scripts) in order to work with them.
+
+.. note::
+   The pre-trained models are trained within the old publication, we did not re-train the models.
+   Except for the different file names, they are identical to the original models.
+   Also, we added the trained models for PROSER.
+   All remaining models (EVM, OpenMax) train quickly and do not need to be uploaded.
 
 
 ## Setup
