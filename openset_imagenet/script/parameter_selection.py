@@ -109,7 +109,7 @@ def dataset(cfg, protocol):
     # return test loader
     return val_dataset, val_loader
 
-from .evaluate_algs import load_model, extract
+from .evaluate import load_model, extract
 
 
 def post_process(gt, logits, features, scores, cfg, thresholds, protocol, loss, algorithm, output_directory, gpu):

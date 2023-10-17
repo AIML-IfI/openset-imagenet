@@ -42,7 +42,7 @@ def confidence(scores, target_labels, offset=0., unknown_class = -1, last_valid_
     return kn_conf, kn_count, neg_conf, neg_count
 
 
-def auc_score_binary(target_labels, pred_scores, unk_class=-1):
+def auc_score_binary(target_labels, pred_scores, unk_label=-1):
     """ Calculates the binary AUC, all known samples labeled as 1. All negatives labeled as -1
     (or -2 if measuring unknowns).
 
@@ -57,15 +57,20 @@ def auc_score_binary(target_labels, pred_scores, unk_class=-1):
     """
     if torch.is_tensor(target_labels):
         target_labels = target_labels.cpu().detach().numpy()
+    else:
+        target_labels = target_labels.copy()
     if torch.is_tensor(pred_scores):
         pred_scores = pred_scores.cpu().detach().numpy()
 
     max_scores = np.max(pred_scores, axis=1)
 
-    known = target_labels != unk_class
+    unknown = target_labels == unk_label
+    known = target_labels >= 0
+    used = np.logical_or(known, unknown)
     target_labels[known] = 1
-    target_labels[~known] = -1
-    return sklearn.metrics.roc_auc_score(target_labels, max_scores)
+    target_labels[unknown] = -1
+#    breakpoint()
+    return sklearn.metrics.roc_auc_score(target_labels[used], max_scores[used])
 
 
 def auc_score_multiclass(target_labels, pred_scores):

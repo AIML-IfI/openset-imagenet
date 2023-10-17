@@ -245,33 +245,34 @@ def ccr_table(args, scores, gt):
         print("Writing CCR tables for protocol", protocol, "to file", latex_file)
         # compute all CCR values and store maximum values
         results_n = collections.defaultdict(dict)
-        max_total_n = numpy.zeros(len(args.fpr_thresholds))
-        max_by_alg_n = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
-        max_by_loss_n = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
+        max_total_n = numpy.zeros(len(args.fpr_thresholds)+1)
+        max_by_alg_n = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)+1))
+        max_by_loss_n = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)+1))
         results_u = collections.defaultdict(dict)
-        max_total_u = numpy.zeros(len(args.fpr_thresholds))
-        max_by_alg_u = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
-        max_by_loss_u = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)))
+        max_total_u = numpy.zeros(len(args.fpr_thresholds)+1)
+        max_by_alg_u = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)+1))
+        max_by_loss_u = collections.defaultdict(lambda:numpy.zeros(len(args.fpr_thresholds)+1))
         for algorithm in args.algorithms:
             for loss in args.losses:
+                auc = openset_imagenet.metrics.auc_score_binary(gt[protocol], scores[protocol][loss][algorithm], unk_label=-1)
                 ccrs = openset_imagenet.util.ccr_at_fpr(gt[protocol], scores[protocol][loss][algorithm], args.fpr_thresholds, unk_label=-1)
-                results_n[algorithm][loss] = ccrs
-                max_total_n = nonemax(max_total_n, ccrs)
-                max_by_alg_n[algorithm] = nonemax(max_by_alg_n[algorithm], ccrs)
-                max_by_loss_n[loss] = nonemax(max_by_loss_n[loss], ccrs)
+                results_n[algorithm][loss] = [auc] + ccrs
+                max_total_n = nonemax(max_total_n, results_n[algorithm][loss])
+                max_by_alg_n[algorithm] = nonemax(max_by_alg_n[algorithm], results_n[algorithm][loss])
+                max_by_loss_n[loss] = nonemax(max_by_loss_n[loss], results_n[algorithm][loss])
 
+                auc = openset_imagenet.metrics.auc_score_binary(gt[protocol], scores[protocol][loss][algorithm], unk_label=-2)
                 ccrs = openset_imagenet.util.ccr_at_fpr(gt[protocol], scores[protocol][loss][algorithm], args.fpr_thresholds, unk_label=-2)
-                results_u[algorithm][loss] = ccrs
-                max_total_u = nonemax(max_total_u, ccrs)
-                max_by_alg_u[algorithm] = nonemax(max_by_alg_u[algorithm], ccrs)
-                max_by_loss_u[loss] = nonemax(max_by_loss_u[loss], ccrs)
+                results_u[algorithm][loss] = [auc] + ccrs
+                max_total_u = nonemax(max_total_u, results_u[algorithm][loss])
+                max_by_alg_u[algorithm] = nonemax(max_by_alg_u[algorithm], results_u[algorithm][loss])
+                max_by_loss_u[loss] = nonemax(max_by_loss_u[loss], results_u[algorithm][loss])
 
 
         with open(latex_file, "w") as f:
             # write header
-            f.write("\\multirow{2}{*}{\\bf Algorithm} & \\multirow{2}{*}{\\bf Loss} & \\multicolumn{3}{c||}{\\bf Negative} & \\multicolumn{3}{c||}{\\bf Unknown} & \\bf Acc \\\\\\cline{3-9}\n & & ")
-#            f.write("\\bf Algorithm & \\bf Loss & ")
-            f.write(" & ".join([THRESHOLDS[t] for t in args.fpr_thresholds[:-1]] * 2 + [THRESHOLDS[1]]))
+            f.write("\\multirow{2}{*}{\\bf Algorithm} & \\multirow{2}{*}{\\bf Loss} & \\multicolumn{4}{c||}{\\bf Negative} & \\multicolumn{4}{c||}{\\bf Unknown} & \\bf Acc \\\\\\cline{3-11}\n & & ")
+            f.write(" & ".join((["\\bf AUROC"] + [THRESHOLDS[t] for t in args.fpr_thresholds[:-1]]) * 2 + [THRESHOLDS[1]]))
             f.write("\\\\\\hline\\hline\n")
             for algorithm in args.algorithms:
                 f.write(f"\\multirow{{{len(args.losses)}}}{{*}}{{{NAMES[algorithm]}}}")
