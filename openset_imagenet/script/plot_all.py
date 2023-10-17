@@ -157,6 +157,37 @@ def plot_OSCR(args, scores, ground_truths):
     )
 
 
+def plot_OSCR_separated(args, scores, ground_truths, unk_label):
+    # plot OSCR
+    P = len(args.protocols)
+    L = len(args.losses)
+    fig = pyplot.figure(figsize=(4*L,3*P))
+    gs = fig.add_gridspec(P, L, hspace=0.25, wspace=0.1)
+    axs = gs.subplots(sharex=True, sharey=True)
+    font = 15
+
+    for p, protocol in enumerate(args.protocols):
+        for l, loss in enumerate(args.losses):
+            openset_imagenet.util.plot_oscr(arrays={loss: scores[protocol][loss]}, gt=ground_truths[protocol], scale="semilog", title=f'$P_{protocol}$ {NAMES[loss]}',
+                    ax_label_font=font, ax=axs[p,l], unk_label=unk_label, line_style="solid")
+    # Axis properties
+    for ax in axs.flat:
+        ax.label_outer()
+        ax.grid(axis='x', linestyle=':', linewidth=1, color='gainsboro')
+        ax.grid(axis='y', linestyle=':', linewidth=1, color='gainsboro')
+
+    # Figure labels
+    fig.text(0.5, 0.06, 'FPR', ha='center', fontsize=font)
+    fig.text(0.07, 0.5, 'CCR', va='center', rotation='vertical', fontsize=font)
+
+    # add legend
+    openset_imagenet.util.oscr_legend(
+        [args.losses[0]], args.algorithms, fig,
+        bbox_to_anchor=(0.5,0.01), handletextpad=0.6, columnspacing=1.5,
+    )
+
+
+
 from openset_imagenet.util import NAMES
 def plot_score_distributions(args, scores, ground_truths, pdf):
 
@@ -314,6 +345,11 @@ def main(command_line_arguments = None):
         # plot OSCR (actually not required for best case)
         print("Plotting OSCR curves")
         plot_OSCR(args, scores, ground_truths)
+        pdf.savefig(bbox_inches='tight', pad_inches = 0)
+
+        plot_OSCR_separated(args, scores, ground_truths, -1)
+        pdf.savefig(bbox_inches='tight', pad_inches = 0)
+        plot_OSCR_separated(args, scores, ground_truths, -2)
         pdf.savefig(bbox_inches='tight', pad_inches = 0)
 
         """

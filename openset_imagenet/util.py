@@ -190,7 +190,7 @@ NAMES = {
     3: "$P_3$"
 }
 
-def plot_single_oscr(fpr, ccr, ax, loss, algorithm, scale):
+def plot_single_oscr(fpr, ccr, ax, loss, algorithm, scale, line_style=None):
     linewidth = 1.1
     if scale == 'log':
         ax.set_xscale('log')
@@ -218,15 +218,20 @@ def plot_single_oscr(fpr, ccr, ax, loss, algorithm, scale):
         ax.set_ylim(0.0, 0.8)
         # ax.set_xlim(None, None)
         ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))  # , prune='lower'))
+    # Remove fpr=0 since it cause errors with different ccrs and logscale.
+#    if len(x):
+#        non_zero = x != 0
+#        x = x[non_zero]
+#        y = y[non_zero]
     ax.plot(fpr,
             ccr,
-            linestyle=STYLES[loss],
+            linestyle=line_style or STYLES[loss],
             color=COLORS[algorithm],
             linewidth=linewidth)  # marker='2', markersize=1
     return ax
 
 
-def plot_oscr(arrays, gt, scale='linear', title=None, ax_label_font=13, ax=None, unk_label=-1,):
+def plot_oscr(arrays, gt, scale='linear', title=None, ax_label_font=13, ax=None, unk_label=-1, line_style=None):
     """Plots OSCR curves for all given scores.
     The scores are stored as arrays: Float array of dim [N_samples, N_classes].
     The arrays contain scores for various loss functions and algorithms as arrays[loss][algorithm].
@@ -239,7 +244,8 @@ def plot_oscr(arrays, gt, scale='linear', title=None, ax_label_font=13, ax=None,
                               ax=ax,
                               loss=loss,
                               algorithm=algorithm,
-                              scale=scale)
+                              scale=scale,
+                              line_style=line_style)
     if title is not None:
         ax.set_title(title, fontsize=ax_label_font)
     ax.tick_params(which='both', bottom=True, top=True, left=True, right=True, direction='in')
@@ -254,34 +260,45 @@ def oscr_legend(losses, algorithms, figure, **kwargs):
     from matplotlib.lines import Line2D
 
     # create legend elements
-    empty_legend = Line2D([None], [None], marker=".", visible=False)
-    padding = len(algorithms) - len(losses)
-    a_padding = max(-padding,0)
-    l_padding = max(padding, 0)
+    if len(losses) > 1:
+        empty_legend = Line2D([None], [None], marker=".", visible=False)
+        padding = len(algorithms) - len(losses)
+        a_padding = max(-padding,0)
+        l_padding = max(padding, 0)
 
-    # add legend elements with sufficient padding
-    legend_elements = \
-            [empty_legend]*(l_padding//2) + \
-            [Line2D([None], [None], linestyle=STYLES[loss], color="k") for loss in losses] + \
-            [empty_legend]*(l_padding//2 + l_padding%2) + \
-            [empty_legend]*(a_padding//2) + \
-            [Line2D([None], [None], linestyle="solid", color=COLORS[algorithm]) for algorithm in algorithms] + \
-            [empty_legend]*(a_padding//2 + + a_padding%2)
+        # add legend elements with sufficient padding
+        legend_elements = \
+                [empty_legend]*(l_padding//2) + \
+                [Line2D([None], [None], linestyle=STYLES[loss], color="k") for loss in losses] + \
+                [empty_legend]*(l_padding//2 + l_padding%2) + \
+                [empty_legend]*(a_padding//2) + \
+                [Line2D([None], [None], linestyle="solid", color=COLORS[algorithm]) for algorithm in algorithms] + \
+                [empty_legend]*(a_padding//2 + + a_padding%2)
 
-    labels = \
-            [""] *(l_padding//2) + \
-            [NAMES[loss] for loss in losses] + \
-            [""]*(l_padding//2 + l_padding%2) + \
-            [""] *(a_padding//2) + \
-            [NAMES[algorithm] for algorithm in algorithms] + \
-            [""]*(a_padding//2 + + a_padding%2)
+        labels = \
+                [""] *(l_padding//2) + \
+                [NAMES[loss] for loss in losses] + \
+                [""]*(l_padding//2 + l_padding%2) + \
+                [""] *(a_padding//2) + \
+                [NAMES[algorithm] for algorithm in algorithms] + \
+                [""]*(a_padding//2 + + a_padding%2)
 
-    # re-order row-first to column-first
-    columns = max(len(algorithms), len(losses))
+        # re-order row-first to column-first
+        columns = max(len(algorithms), len(losses))
 
-    indexes = [i for j in range(columns) for i in (j, j+columns)]
-    legend_elements = [legend_elements[index] for index in indexes]
-    labels = [labels[index] for index in indexes]
+        indexes = [i for j in range(columns) for i in (j, j+columns)]
+        legend_elements = [legend_elements[index] for index in indexes]
+        labels = [labels[index] for index in indexes]
+
+    else:
+        legend_elements = \
+                [Line2D([None], [None], linestyle="solid", color=COLORS[algorithm]) for algorithm in algorithms]
+
+        labels = \
+                [NAMES[algorithm] for algorithm in algorithms]
+
+        columns = len(algorithms)
+
 
     figure.legend(handles=legend_elements, labels=labels, loc="lower center", ncol=columns, **kwargs)
 
