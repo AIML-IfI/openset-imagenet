@@ -246,14 +246,13 @@ def get_arrays(model, loader, pretty=False):
             all_scores.numpy())
 
 
-def worker(cfg, dummy_count_index=0):
+def worker(cfg):
     """ Main worker creates all required instances, trains and validates the model.
     Args:
         cfg (NameSpace): Configuration of the experiment
     """
     # referencing best score and setting seeds
     set_seeds(cfg.seed)
-    cfg.algorithm.dummy_count = cfg.algorithm.dummy_counts[dummy_count_index]
 
     BEST_SCORE = 0.0    # Best validation score
     START_EPOCH = 0     # Initial training epoch

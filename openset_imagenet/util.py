@@ -174,11 +174,11 @@ STYLES = {
 }
 
 NAMES = {
-    "threshold": "Threshold",
+    "threshold": "MSS",
     "openmax": "OpenMax",
-    "proser": "PROSER",
+    "proser": "PROSER*",
     "evm": "EVM",
-    "maxlogits": "MaxLogits",
+    "maxlogits": "MLS",
     "entropic": "EOS",
     "softmax": "Softmax",
     "garbage": "Garbage",

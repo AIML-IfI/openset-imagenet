@@ -47,9 +47,9 @@ def command_line_options(command_line_arguments=None):
     )
     parser.add_argument(
         "--algorithms", "-a",
-        choices = ["threshold", "openmax", "evm", "proser", "maxlogits"],
+        choices = ["threshold", "maxlogits", "openmax", "evm", "proser"],
         nargs = "+",
-        default = ["threshold", "openmax", "evm", "proser", "maxlogits"],
+        default = ["threshold", "maxlogits", "openmax", "evm", "proser"],
         help = "Which algorithm to include into the plot. Specific parameters should be in the yaml file"
     )
     parser.add_argument(
@@ -161,7 +161,7 @@ def plot_OSCR_separated(args, scores, ground_truths, unk_label):
     # plot OSCR
     P = len(args.protocols)
     L = len(args.losses)
-    fig = pyplot.figure(figsize=(4*L,3*P))
+    fig = pyplot.figure(figsize=(4*L,2*P))
     gs = fig.add_gridspec(P, L, hspace=0.25, wspace=0.1)
     axs = gs.subplots(sharex=True, sharey=True)
     font = 15
@@ -177,13 +177,13 @@ def plot_OSCR_separated(args, scores, ground_truths, unk_label):
         ax.grid(axis='y', linestyle=':', linewidth=1, color='gainsboro')
 
     # Figure labels
-    fig.text(0.5, 0.06, 'FPR', ha='center', fontsize=font)
+    fig.text(0.5, 0.03, 'FPR', ha='center', fontsize=font)
     fig.text(0.07, 0.5, 'CCR', va='center', rotation='vertical', fontsize=font)
 
     # add legend
     openset_imagenet.util.oscr_legend(
         [args.losses[0]], args.algorithms, fig,
-        bbox_to_anchor=(0.5,0.01), handletextpad=0.6, columnspacing=1.5,
+        bbox_to_anchor=(0.5,-0.04), handletextpad=0.6, columnspacing=1.5,
     )
 
 
@@ -255,8 +255,10 @@ def plot_score_distributions(args, scores, ground_truths, pdf):
                            Line2D([None], [None], color=edge_negative),
                            Line2D([None], [None], color=edge_unknown)]
         legend_labels = ["Known", "Negative", "Unknown"]
-#        fig.legend(handles=legend_elements, labels=legend_labels, loc="lower center", ncol=3, bbox_to_anchor=(0.3,0.0))
-        fig.legend(handles=legend_elements, labels=legend_labels, loc="lower center", ncol=3)
+        fig.legend(handles=legend_elements, labels=legend_labels, loc="lower right", ncol=3, bbox_to_anchor=(0.85,0.01))
+#        fig.legend(handles=legend_elements, labels=legend_labels, loc="lower right", ncol=3)
+        fig.text(0.3, 0.03, "Probability Score", ha='center', fontsize=font_size)
+        fig.text(0.06, 0.5, "Sample Count", va='center', rotation='vertical', fontsize=font_size)
 
 
         # X label

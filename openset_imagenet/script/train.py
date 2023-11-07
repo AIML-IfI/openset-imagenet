@@ -58,7 +58,7 @@ def main(command_line_options = None):
     elif config.algorithm.type in ['openmax', 'evm']:
         openset_imagenet.openmax_evm.worker(config)
     elif config.algorithm.type == "proser":
-        openset_imagenet.proser.worker(config, 0)
+        openset_imagenet.proser.worker(config)
     else:
         raise ValueError(f"The training configuration type '{config.algorithm.type}' is not known to the system")
 

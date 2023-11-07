@@ -39,7 +39,7 @@ def command_line_options(command_line_arguments=None):
     )
     parser.add_argument(
         "--algorithms", "-a",
-        choices = ["openmax", "evm"],
+        choices = ["openmax", "evm", "proser"],
         nargs = "+",
         default = ["openmax", "evm"],
         help = "Which algorithms to optimize. Specific parameters should be in the yaml files"
@@ -154,7 +154,7 @@ def post_process(gt, logits, features, scores, cfg, thresholds, protocol, loss, 
 
 
 def process_model(protocol, loss, algorithm, cfg, thresholds, suffix, gpu):
-    output_directory =pathlib.Path(cfg.output_directory)/f"Protocol_{protocol}"
+    output_directory = pathlib.Path(cfg.output_directory)/f"Protocol_{protocol}"
     # set device
     if gpu is not None:
         set_device_gpu(index=gpu)
@@ -171,24 +171,56 @@ def process_model(protocol, loss, algorithm, cfg, thresholds, suffix, gpu):
     else:
         n_classes = val_dataset.label_count - 1  # number of classes - 1 when training was without garbage class
 
-    base_model = load_model(cfg, loss, "threshold", protocol, suffix, output_directory, n_classes)
-    if base_model is None:
-        logger.warning(f"The base model for protocol {protocol} and {loss} could not be found -- skipping")
-        return
+    if algorithm in ("evm", "openmax"):
 
-    # extract features
-    logger.info(f"Extracting base scores for protocol {protocol}, {loss}")
-    gt, logits, features, scores = extract(base_model, val_loader, "threshold", loss)
-    # remove model from GPU memory
-    del base_model
+        base_model = load_model(cfg, loss, "threshold", protocol, suffix, output_directory, n_classes)
+        if base_model is None:
+            logger.warning(f"The base model for protocol {protocol} and {loss} could not be found -- skipping")
+            return
 
-    # get results
-    return post_process(gt, logits, features, scores, cfg, thresholds, protocol, loss, algorithm, output_directory, gpu)
+        # extract features
+        logger.info(f"Extracting base scores for protocol {protocol}, {loss}")
+        gt, logits, features, scores = extract(base_model, val_loader, "threshold", loss)
+        # remove model from GPU memory
+        del base_model
+
+        # get results
+        return post_process(gt, logits, features, scores, cfg, thresholds, protocol, loss, algorithm, output_directory, gpu)
+
+    elif algorithm == "proser":
+        results = {}
+        for dummy_count in cfg.algorithm.dummy_counts:
+
+            base = openset_imagenet.ResNet50(
+                fc_layer_dim=n_classes,
+                out_features=n_classes,
+                logit_bias=False)
+
+            model = openset_imagenet.model.ResNet50Proser(
+                dummy_count = dummy_count,
+                fc_layer_dim=n_classes,
+                resnet_base = base,
+                loss_type=loss)
+
+            model_path = cfg.algorithm.output_model_path.format(output_directory, loss, algorithm, 20, dummy_count, suffix)
+
+            start_epoch, best_score = openset_imagenet.train.load_checkpoint(model, model_path)
+            logger.info(f"Taking model from epoch {start_epoch} that achieved best score {best_score}")
+            device(model)
+
+            if model is not None:
+                # and extract features using that model
+                logger.info(f"Extracting proser scores for protocol {protocol}, {loss}, {dummy_count}")
+                gt, _, _, scores = extract(model, val_loader, "proser", loss)
+                del model
+                results[(dummy_count,)] = openset_imagenet.util.ccr_at_fpr(gt, scores, thresholds, unk_label=-1)
+        return results
 
 
 HEADERS = {
     "evm": "$\\lambda$ & $\\kappa$ & $\\omega$ & ",
     "openmax": "$\\lambda$ & $\\kappa$ & $\\alpha$ & ",
+    "proser": "$B$ & ",
 }
 THRESHOLDS = {1e-4: "$10^{-4}$",
               1e-3: "$10^{-3}$",
